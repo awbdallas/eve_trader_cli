@@ -4,22 +4,24 @@ import argparse
 import json
 import requests
 import sys
-import xml.etree.ElementTree as ET
 from terminaltables import AsciiTable
 
 
-"""
-TODO's for the program
-Get basic command for one item working for query
-Do it for large ones
-Create a "report" that will have things like shipping costs
-and things like that. Hopefully outputting to a spreadsheet of some sort
-"""
 def main():
 
+    """
+    TODO's for the program
+    Get basic command for one item working for query
+    Do it for large ones
+    Create a "report" that will have things like shipping costs
+    and things like that. Hopefully outputting to a spreadsheet of some sort
+    """
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--system", help="System to query")
-    parser.add_argument("--item", help="Item in question")
+    # TODO multiple systems
+    parser.add_argument("--system", help="System to query", default="30000142")
+    parser.add_argument("--item", help="Item in question", nargs="+",
+                        action="append")
     parser.add_argument("--file", help="File of items")
     args = parser.parse_args()
 
@@ -30,18 +32,22 @@ def main():
         if args.file:
             input_items = load_user_items(args.file, eve_items)
         else:
-            input_items = [args.item]
-            
+            input_items = []
+
             # TODO add support for systems
             # TODO convert for multiple items
-            if not eve_items.get(args.item, None):
-                print("Item {} is not a valid item".format(args.item))
-                sys.exit()
-        
+            for item in args.item[0]:
+                if not eve_items.get(item, None):
+                    print("Item {} is not a valid item".format(item))
+                    sys.exit()
+                else:
+                    input_items.append(eve_items[item]['itemid'])
+
         eve_items = get_item_prices(input_items, eve_items, args.system)
         display_info(input_items, eve_items)
     else:
         print("Please have a system and item, or system and a file")
+
 
 def display_info(input_items, eve_items):
     base_table = [['Item', 'Buy Max', 'Sell Min']]
@@ -56,12 +62,12 @@ def display_info(input_items, eve_items):
     print(table.table)
 
 
-"""
-Purpose: convert numbers to be easier to digest
-Returns: Formatted double
-"""
-
 def convert_number(input_number):
+    """
+    Purpose: convert numbers to be easier to digest
+    Returns: Formatted double
+    """
+
     # billions
     if input_number / 1e9 > 1:
         return "%.2fB" % round((input_number / 1e9), 2)
@@ -87,14 +93,17 @@ def load_user_items(file_input, eve_items):
         for line in user_file:
             line = line.strip()
             if eve_items.get(line, None):
-                user_items.append(line)
+                user_items.append(eve_items[line]['itemid'])
 
-    return user_items 
-"""
-Purpose: Load all the items from the eve_items file into a dict
-Returns: eve items in dict form. Keys can be either number or name
-"""
+    return user_items
+
+
 def load_eve_items():
+    """
+    Purpose: Load all the items from the eve_items file into a dict
+    Returns: eve items in dict form. Keys can be either number or name
+    """
+
     file_name = "./eve_items.csv"
     items = {}
     with open(file_name, 'r') as items_fh:
@@ -107,7 +116,7 @@ def load_eve_items():
                     'name': line[2],
                     'volume': line[3]
                     }
-            items[line[1]] = {
+            items[line[2]] = {
                     'itemid': line[0],
                     'groupid': line[1],
                     'name': line[2],
@@ -116,8 +125,6 @@ def load_eve_items():
     return items
 
 
-"""
-"""
 def get_item_prices(input_items, eve_items, system_id):
     urls = make_url(input_items, system_id)
     for url in urls:
@@ -131,11 +138,12 @@ def get_item_prices(input_items, eve_items, system_id):
     return eve_items
 
 
-"""
-Purpose: Make the urls for the actual request
-Returns: A list of urls
-"""
 def make_url(items, system):
+    """
+    Purpose: Make the urls for the actual request
+    Returns: A list of urls
+    """
+
     base_url = "http://api.eve-central.com/api/marketstat/json?"
     urls = []
 
@@ -143,10 +151,9 @@ def make_url(items, system):
     chunks = [items[i:i+100] for i in range(0, len(items), 100)]
     
     for chunk in chunks:
-         urls.append(base_url + '&'.join('typeid=%s' % x for x in chunk)\
-                 + '&usesystem=%s' % system)
+        urls.append(base_url + '&'.join('typeid=%s' % x for x in chunk)
+                    + '&usesystem=%s' % system)
     return urls
-
 
 
 if __name__ == '__main__':
