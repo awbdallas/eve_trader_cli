@@ -50,12 +50,28 @@ def main():
 
 
 def display_info(input_items, eve_items):
-    base_table = [['Item', 'Buy Max', 'Sell Min']]
+    """
+    Purpose: Displaying the info to terminal to make it a little cleaner
+    Returns: None (default)
+    TODO
+    Need to have different modes. Like, station modes and shipping modes for
+    region trading
+    """
+
+    base_table = [['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk']]
     for item in input_items:
+        name = eve_items[item]['name']
+        buy = eve_items[item]['market_info']['buy']['wavg']
+        sell = eve_items[item]['market_info']['sell']['wavg']
+        spread = 100 * ((sell - buy) / sell)
+        spread_isk = (sell - buy)
+
         base_table.append([
-            eve_items[item]['name'],
-            convert_number(eve_items[item]['market_info']['buy']['avg']),
-            convert_number(eve_items[item]['market_info']['sell']['avg'])
+            name,
+            convert_number(buy),
+            convert_number(sell),
+            convert_number(spread) + '%',
+            convert_number(spread_isk)
             ])
 
     table = AsciiTable(base_table)
