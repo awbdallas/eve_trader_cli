@@ -83,8 +83,8 @@ def display_shipping_info(input_items, eve_items, systems, shipping_cost):
         sell_from = eve_items[item][systems[0]]['market_info']['sell']['min']
         sell_to = eve_items[item][systems[1]]['market_info']['sell']['min']
         shipping = float(eve_items[item]['volume']) * shipping_cost
-        difference_isk = sell_to - sell_from
-        difference_percent = 100 * ((sell_to - sell_from) / sell_to)
+        difference_isk = (sell_to - sell_from) - shipping
+        difference_percent = 100 * ((difference_isk) / sell_to)
         volume_to = eve_items[item][systems[1]]['market_info']['sell']['volume']
 
 
