@@ -1,24 +1,36 @@
 #!/usr/bin/env python3
 
 import argparse
+import datetime
 import json
+import os
 import requests
 import sys
-from terminaltables import AsciiTable
 
+from terminaltables import AsciiTable
+from sqlalchemy import Column, Integer, String, DateTime, Float, create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
+_STORE_DB = "./previous_results.db"
 
 def main():
 
     """
     TODO's for the program
+    COMMENT this stuff properly. Oh god, it's awful.
     Get basic command for one item working for query
     Do it for large ones
     Create a "report" that will have things like shipping costs
     and things like that. Hopefully outputting to a spreadsheet of some sort
     """
 
+    if not os.path.exists(_STORE_DB):
+        create_db()
+
     parser = argparse.ArgumentParser()
-    # TODO multiple systems
     parser.add_argument("--system", help="System to query", default="30000142")
     parser.add_argument("--item", help="Item in question", nargs="+",
                         action="append")
@@ -49,6 +61,8 @@ def main():
                 [from_system, to_system])
         display_shipping_info(input_items, eve_items, 
                 [from_system, to_system], price)
+        store_shipping_info(input_items, eve_items, 
+                [from_system, to_system])
 
     elif (args.system and args.item) or (args.system and args.file):
         eve_items = load_eve_items()
@@ -69,9 +83,48 @@ def main():
 
         eve_items = get_item_prices(input_items, eve_items, [args.system])
         display_market_info(input_items, eve_items, args.system)
+        store_market_info(input_items, eve_items, args.system)
     else:
         print("Please have a system and item, or system and a file")
 
+
+def store_market_info(input_items, eve_items, system):
+    engine = create_engine('sqlite:///{}'.format(_STORE_DB))
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    add_list = []
+
+    for item in input_items:
+        add_list.append(Item(system=system,
+            price = eve_items[item][system]['market_info']['sell']['wavg']))
+        
+    session.add_all(add_list)
+    session.commit()
+
+
+# TODO maybe combine with **kwaargs and just check for systems
+def store_shipping_info(input_items, eve_items, systems):
+    
+    engine = create_engine('sqlite:///{}'.format(_STORE_DB))
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    add_list = []
+
+    for item in input_items:
+        for system in systems:
+            add_list.append(Item(system=system,
+                price = eve_items[item][system]['market_info']['sell']['wavg']))
+        
+    session.add_all(add_list)
+    session.commit()
+    return None
+
+
+def create_db():
+    engine = create_engine('sqlite:///{}'.format(_STORE_DB))
+    Base.metadata.create_all(engine)
 
 
 def display_shipping_info(input_items, eve_items, systems, shipping_cost):
@@ -234,5 +287,15 @@ def make_url(items, system):
     return urls
 
 
+class Item(Base):
+    __tablename__ = 'item'
+    id = Column(Integer, primary_key=True)
+    date = Column(DateTime, default=datetime.datetime.utcnow)
+    price = Column(Float)
+    system = Column(Integer)
+
+
 if __name__ == '__main__':
     main()
+
+
