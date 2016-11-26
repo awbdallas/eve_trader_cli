@@ -8,7 +8,7 @@ import requests
 import sys
 
 from terminaltables import AsciiTable
-from sqlalchemy import Column, Integer, String, DateTime, Float, create_engine
+from sqlalchemy import Column, Integer, String, DateTime, Float, create_engine, and_
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -59,10 +59,10 @@ def main():
 
         eve_items = get_item_prices(input_items, eve_items, 
                 [from_system, to_system])
-        display_shipping_info(input_items, eve_items, 
-                [from_system, to_system], price)
         store_shipping_info(input_items, eve_items, 
                 [from_system, to_system])
+        display_shipping_info(input_items, eve_items, 
+                [from_system, to_system], price)
 
     elif (args.system and args.item) or (args.system and args.file):
         eve_items = load_eve_items()
@@ -82,8 +82,8 @@ def main():
                     input_items.append(eve_items[item]['itemid'])
 
         eve_items = get_item_prices(input_items, eve_items, [args.system])
-        display_market_info(input_items, eve_items, args.system)
         store_market_info(input_items, eve_items, args.system)
+        display_market_info(input_items, eve_items, args.system)
     else:
         print("Please have a system and item, or system and a file")
 
@@ -96,8 +96,11 @@ def store_market_info(input_items, eve_items, system):
     add_list = []
 
     for item in input_items:
+        print(item)
         add_list.append(Item(system=system,
-            price = eve_items[item][system]['market_info']['sell']['wavg']))
+            avg_min_sell = eve_items[item][system]['market_info']['sell']['wavg'],
+            avg_max_buy = eve_items[item][system]['market_info']['buy']['wavg'],
+            item_id = item))
         
     session.add_all(add_list)
     session.commit()
@@ -115,7 +118,9 @@ def store_shipping_info(input_items, eve_items, systems):
     for item in input_items:
         for system in systems:
             add_list.append(Item(system=system,
-                price = eve_items[item][system]['market_info']['sell']['wavg']))
+                avg_min_sell = eve_items[item][system]['market_info']['sell']['wavg'],
+                avg_max_buy = eve_items[item][system]['market_info']['buy']['wavg'],
+                item_id = item))
         
     session.add_all(add_list)
     session.commit()
@@ -166,24 +171,48 @@ def display_market_info(input_items, eve_items, system):
     region trading
     """
 
-    base_table = [['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk']]
+    base_table = [['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk', 
+        'Average Sell Min', 'Average Buy Max']]
     for item in input_items:
         name = eve_items[item]['name']
         buy = eve_items[item][system]['market_info']['buy']['wavg']
         sell = eve_items[item][system]['market_info']['sell']['wavg']
         spread = 100 * ((sell - buy) / sell)
         spread_isk = (sell - buy)
+        average_sell, average_buy = get_average_request(item, system)
 
         base_table.append([
             name,
             convert_number(buy),
             convert_number(sell),
             convert_number(spread) + '%',
-            convert_number(spread_isk)
+            convert_number(spread_isk),
+            convert_number(average_sell),
+            convert_number(average_buy)
             ])
 
     table = AsciiTable(base_table)
     print(table.table)
+
+
+def get_average_request(input_item, system):
+    engine = create_engine('sqlite:///{}'.format(_STORE_DB))
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
+    result = session.query(Item).filter(and_(Item.item_id == input_item, 
+        Item.system == system)).all()
+    
+    amount = len(result)
+    
+    sell_sum = 0
+    buy_sum = 0
+
+    for item in result:
+        sell_sum += item.avg_min_sell
+        buy_sum += item.avg_max_buy
+    
+    return sell_sum / len(result), buy_sum / len(result)
 
 
 def convert_number(input_number):
@@ -290,12 +319,12 @@ def make_url(items, system):
 class Item(Base):
     __tablename__ = 'item'
     id = Column(Integer, primary_key=True)
+    item_id = Column(Integer)
     date = Column(DateTime, default=datetime.datetime.utcnow)
-    price = Column(Float)
+    avg_min_sell = Column(Float)
+    avg_max_buy = Column(Float)
     system = Column(Integer)
 
 
 if __name__ == '__main__':
     main()
-
-
