@@ -21,10 +21,6 @@ def main():
     """
     TODO's for the program
     COMMENT this stuff properly. Oh god, it's awful.
-    Get basic command for one item working for query
-    Do it for large ones
-    Create a "report" that will have things like shipping costs
-    and things like that. Hopefully outputting to a spreadsheet of some sort
     """
 
     if not os.path.exists(_STORE_DB):
@@ -89,6 +85,10 @@ def main():
 
 
 def store_market_info(input_items, eve_items, system):
+    """
+    Purpose    : Store info in regards to markets
+    Parameters : Input Typeids, eve_items dict, systems in question
+    """
     engine = create_engine('sqlite:///{}'.format(_STORE_DB))
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -98,16 +98,19 @@ def store_market_info(input_items, eve_items, system):
     for item in input_items:
         print(item)
         add_list.append(Item(system=system,
-            avg_min_sell = eve_items[item][system]['market_info']['sell']['wavg'],
-            avg_max_buy = eve_items[item][system]['market_info']['buy']['wavg'],
+            min_sell = eve_items[item][system]['market_info']['sell']['wavg'],
+            max_buy = eve_items[item][system]['market_info']['buy']['wavg'],
             item_id = item))
         
     session.add_all(add_list)
     session.commit()
 
 
-# TODO maybe combine with **kwaargs and just check for systems
 def store_shipping_info(input_items, eve_items, systems):
+    """
+    Purpose    : Store info in regards to shipping from the query
+    Parameters : Input Typeids, eve_items dict, systems in question
+    """
     
     engine = create_engine('sqlite:///{}'.format(_STORE_DB))
     Session = sessionmaker(bind=engine)
@@ -118,21 +121,30 @@ def store_shipping_info(input_items, eve_items, systems):
     for item in input_items:
         for system in systems:
             add_list.append(Item(system=system,
-                avg_min_sell = eve_items[item][system]['market_info']['sell']['wavg'],
-                avg_max_buy = eve_items[item][system]['market_info']['buy']['wavg'],
+                min_sell = eve_items[item][system]['market_info']['sell']['wavg'],
+                max_buy = eve_items[item][system]['market_info']['buy']['wavg'],
                 item_id = item))
         
     session.add_all(add_list)
     session.commit()
-    return None
 
 
 def create_db():
+    """
+    Purpose    : initialize db with Item model
+    """
+
     engine = create_engine('sqlite:///{}'.format(_STORE_DB))
     Base.metadata.create_all(engine)
 
 
 def display_shipping_info(input_items, eve_items, systems, shipping_cost):
+    """
+    Purpose    : Displaying info in regards to shipping
+    Parameters : typeids as input, eve_items that's populated with market data,
+    and the system in question
+    """
+
     base_table = [['Item', 'From System Sell', 'To System Sell', 'Shipping Cost',
         'Difference (%)', 'Difference (isk)', 'To System Volume']]
 
@@ -142,7 +154,10 @@ def display_shipping_info(input_items, eve_items, systems, shipping_cost):
         sell_to = eve_items[item][systems[1]]['market_info']['sell']['min']
         shipping = float(eve_items[item]['volume']) * shipping_cost
         difference_isk = (sell_to - sell_from) - shipping
-        difference_percent = 100 * ((difference_isk) / sell_to)
+        try:
+            difference_percent = 100 * ((difference_isk) / sell_to)
+        except ZeroDivisionError:
+            difference_percent = "100"
         volume_to = eve_items[item][systems[1]]['market_info']['sell']['volume']
 
 
@@ -159,16 +174,13 @@ def display_shipping_info(input_items, eve_items, systems, shipping_cost):
     table = AsciiTable(base_table)
     print(table.table)
 
-    return None
-
 
 def display_market_info(input_items, eve_items, system):
     """
-    Purpose: Displaying the info to terminal to make it a little cleaner
-    Returns: None (default)
-    TODO
-    Need to have different modes. Like, station modes and shipping modes for
-    region trading
+    Purpose    : Displaying the info to terminal to make it a little cleaner
+    (It ended up looking like a spreadhseet...awkward)
+    Parameters : typeids as input, eve_items that's populated with market data,
+    and the system in question
     """
 
     base_table = [['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk', 
@@ -196,6 +208,11 @@ def display_market_info(input_items, eve_items, system):
 
 
 def get_average_request(input_item, system):
+    """
+    Purpose    : Getting the average from the cached requested prices
+    Parameters : TypeID, and system in question
+    Returns    : Average sell and buy price for the item
+    """
     engine = create_engine('sqlite:///{}'.format(_STORE_DB))
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -217,29 +234,37 @@ def get_average_request(input_item, system):
 
 def convert_number(input_number):
     """
-    Purpose: convert numbers to be easier to digest
-    Returns: Formatted double
+    Purpose    : Convert numbers to be easier to digest
+    Returns    : Formatted number in str type to second decimal
+    Parameters : Any number
     """
+    try:
+        # billions
+        if input_number / 1e9 > 1 or input_number / 1e9 < -1:
+            return "%.2fB" % round((input_number / 1e9), 2)
+        # millions
+        elif input_number / 1e6 > 1 or input_number / 1e6 < -1:
+            return "%.2fM" % round((input_number / 1e6), 2)
+        # thousands
+        elif input_number / 1e3 > 1 or input_number / 1e3 < -1:
+            return "%.2fK" % round((input_number / 1e3), 2)
+        # everything that's left
+        else:
+            return "%.2f" % round(input_number, 2)
+        return None
+    except:
+        return "0"
 
-    # billions
-    if input_number / 1e9 > 1 or input_number / 1e9 < -1:
-        return "%.2fB" % round((input_number / 1e9), 2)
-
-    # millions
-    elif input_number / 1e6 > 1 or input_number / 1e6 < -1:
-        return "%.2fM" % round((input_number / 1e6), 2)
-    # thousands
-    elif input_number / 1e3 > 1 or input_number / 1e3 < -1:
-        return "%.2fK" % round((input_number / 1e3), 2)
-    # everything that's left
-    else:
-        return "%.2f" % round(input_number, 2)
-
-    return None
 
 
 # TODO add checking in the future
 def load_user_items(file_input, eve_items):
+    """
+    Purpose    : Load all the items from the eve_items file into a dict
+    Parameters : None
+    Returns    : eve items in dict form. Keys can be either number or name
+    """
+
     user_items = []
 
     with open(file_input, 'r') as user_file:
@@ -253,8 +278,9 @@ def load_user_items(file_input, eve_items):
 
 def load_eve_items():
     """
-    Purpose: Load all the items from the eve_items file into a dict
-    Returns: eve items in dict form. Keys can be either number or name
+    Purpose    : Load all the items from the eve_items file into a dict
+    Parameters : None
+    Returns    : eve items in dict form. Keys can be either number or name
     """
 
     file_name = "./eve_items.csv"
@@ -280,6 +306,14 @@ def load_eve_items():
 
 
 def get_item_prices(input_items, eve_items, system_ids):
+    """
+    Purpose    : get information from eve central  
+    Parameters : itemids, eve_items which will contain all information 
+    gathered from eve_items.csv 
+    Returns    : eve_items which will now be populated in format
+    eve_tiems[typeid][systemid]['market_info'] to get into the market_info
+    """
+
     urls = []
     # Accounting for as many systems as allowed. 
     for system in system_ids:
@@ -300,8 +334,9 @@ def get_item_prices(input_items, eve_items, system_ids):
 
 def make_url(items, system):
     """
-    Purpose: Make the urls for the actual request
-    Returns: A list of urls
+    Purpose    : Making URL with eve_central to query
+    Parameters : the items to query, and the system to query
+    Returns    : a list of urls
     """
 
     base_url = "http://api.eve-central.com/api/marketstat/json?"
@@ -317,12 +352,16 @@ def make_url(items, system):
 
 
 class Item(Base):
+    """
+    Purpose    : Defining the model for SQLAlchemy for Items.  
+    """
+
     __tablename__ = 'item'
     id = Column(Integer, primary_key=True)
     item_id = Column(Integer)
     date = Column(DateTime, default=datetime.datetime.utcnow)
-    avg_min_sell = Column(Float)
-    avg_max_buy = Column(Float)
+    min_sell = Column(Float)
+    max_buy = Column(Float)
     system = Column(Integer)
 
 
