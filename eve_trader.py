@@ -6,6 +6,7 @@ import json
 import os
 import requests
 import sys
+import pyoo
 
 from terminaltables import AsciiTable
 from sqlalchemy import Column, Integer, String, DateTime, Float, create_engine, and_
@@ -16,11 +17,15 @@ Base = declarative_base()
 
 _STORE_DB = "./previous_results.db"
 
+
 def main():
 
     """
     TODO's for the program
     COMMENT this stuff properly. Oh god, it's awful.
+    Fix the displaying into one control somehow 
+    Fix items so that the ships packaged as far as volume 
+    concerned
     """
 
     if not os.path.exists(_STORE_DB):
@@ -28,6 +33,8 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--system", help="System to query", default="30000142")
+    parser.add_argument("--sheet", help="Output to OO/LO spreadsheet", action='store_true',
+            default=False)
     parser.add_argument("--item", help="Item in question", nargs="+",
                         action="append")
     parser.add_argument("--file", help="File of items")
@@ -57,8 +64,13 @@ def main():
                 [from_system, to_system])
         store_shipping_info(input_items, eve_items, 
                 [from_system, to_system])
-        display_shipping_info(input_items, eve_items, 
-                [from_system, to_system], price)
+
+        if args.sheet:
+            display_shipping_sheet(input_items, eve_items, 
+                    [from_system, to_system], price)
+        else:
+            display_shipping_info(input_items, eve_items, 
+                    [from_system, to_system], price)
 
     elif (args.system and args.item) or (args.system and args.file):
         eve_items = load_eve_items()
@@ -68,8 +80,6 @@ def main():
         else:
             input_items = []
 
-            # TODO add support for systems
-            # TODO convert for multiple items
             for item in args.item[0]:
                 if not eve_items.get(item, None):
                     print("Item {} is not a valid item".format(item))
@@ -79,7 +89,11 @@ def main():
 
         eve_items = get_item_prices(input_items, eve_items, [args.system])
         store_market_info(input_items, eve_items, args.system)
-        display_market_info(input_items, eve_items, args.system)
+
+        if args.sheet:
+            display_market_sheet(input_items, eve_items, args.system)
+        else:
+            display_market_info(input_items, eve_items, args.system)
     else:
         print("Please have a system and item, or system and a file")
 
@@ -251,7 +265,7 @@ def convert_number(input_number):
         # everything that's left
         else:
             return "%.2f" % round(input_number, 2)
-        return None
+        return "0"
     except:
         return "0"
 
@@ -349,6 +363,97 @@ def make_url(items, system):
         urls.append(base_url + '&'.join('typeid=%s' % x for x in chunk)
                     + '&usesystem=%s' % system)
     return urls
+
+
+def display_shipping_sheet(input_items, eve_items, systems, shipping_cost):
+    """
+    Purpose    : Turn info into a LibreOffice/Open OFfice spreadsheet
+    Parameters : typeds as input, eve items with market data, systems in question
+    and the shipping cost for it
+    Returns    : None
+    """
+
+    # TODO Fix this and also have checks if it's already active
+    # os.system('nohup soffice --accept="socket,host=localhost,port=2002;urp;" --norestore --nologo --nodefault &')
+    desktop = pyoo.Desktop('localhost', 2002)
+
+    doc = desktop.open_spreadsheet("./template.ods")
+
+    sheet = doc.sheets[0]
+
+    headers = ['Item', 'From System Sell', 'To System Sell', 'Shipping Cost',
+        'Difference (%)', 'To System Volume']
+    sheet[0, :6].values = headers
+    
+    current_row = 1
+
+    for item in input_items:
+        name = eve_items[item]['name']
+        sell_from = eve_items[item][systems[0]]['market_info']['sell']['min']
+        sell_to = eve_items[item][systems[1]]['market_info']['sell']['min']
+        shipping = float(eve_items[item]['volume']) * shipping_cost
+
+        volume_to = eve_items[item][systems[1]]['market_info']['sell']['volume']
+
+        sheet[current_row, :4].values = [
+            name,
+            sell_from,
+            sell_to,
+            shipping
+        ]
+
+        sheet[current_row, 4].formula = '=($C{0} - ($B{0} + $D{0}))/ $B{0}'.format(current_row + 1)
+
+        sheet[current_row, 5].value = volume_to
+
+        current_row += 1
+
+
+def display_market_sheet(input_items, eve_items, system):
+    """
+    Purpose    : Display info to spreadhseet for easier use 
+    Parameters : typeids as input, eve_items that's populated with market data,
+    and the system in question
+    """
+
+    # TODO Fix this and also have checks if it's already active
+    os.system('soffice --accept="socket,host=localhost,port=2002;urp;" --norestore --nologo --nodefault')
+    desktop = pyoo.Desktop('localhost', 2002)
+
+    # TODO check if already exists, and
+    doc = desktop.create_spreadsheet()
+
+    sheet = doc.sheets[0]
+
+    headers = ['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk', 
+        'Average Sell Min', 'Average Buy Max']
+    sheet[0, :7].values = headers
+    
+    current_row = 1
+
+    for item in input_items:
+        name = eve_items[item]['name']
+        buy = eve_items[item][system]['market_info']['buy']['wavg']
+        sell = eve_items[item][system]['market_info']['sell']['wavg']
+        try: 
+            spread = sell - buy / sell
+        except ZeroDivisionError:
+            spread = 0
+
+        spread_isk = (sell - buy)
+        average_sell, average_buy = get_average_request(item, system)
+
+        sheet[current_row, :7] = [
+            name,
+            buy,
+            sell,
+            spread,
+            spread_isk,
+            average_sell,
+            average_buy
+        ]
+
+        current_row += 1
 
 
 class Item(Base):
