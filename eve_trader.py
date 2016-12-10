@@ -56,6 +56,7 @@ def main():
                     sys.exit()
                 else:
                     input_items.append(eve_items[item]['itemid'])
+
         from_system = args.shipping[0][0]
         to_system = args.shipping[0][1]
         price = int(args.shipping[0][2])
@@ -110,7 +111,6 @@ def store_market_info(input_items, eve_items, system):
     add_list = []
 
     for item in input_items:
-        print(item)
         add_list.append(Item(system=system,
             min_sell = eve_items[item][system]['market_info']['sell']['wavg'],
             max_buy = eve_items[item][system]['market_info']['buy']['wavg'],
@@ -240,8 +240,8 @@ def get_average_request(input_item, system):
     buy_sum = 0
 
     for item in result:
-        sell_sum += item.avg_min_sell
-        buy_sum += item.avg_max_buy
+        sell_sum += item.min_sell
+        buy_sum += item.max_buy
     
     return sell_sum / len(result), buy_sum / len(result)
 
@@ -373,11 +373,9 @@ def display_shipping_sheet(input_items, eve_items, systems, shipping_cost):
     Returns    : None
     """
 
-    # TODO Fix this and also have checks if it's already active
-    # os.system('nohup soffice --accept="socket,host=localhost,port=2002;urp;" --norestore --nologo --nodefault &')
     desktop = pyoo.Desktop('localhost', 2002)
 
-    doc = desktop.open_spreadsheet("./template.ods")
+    doc = desktop.open_spreadsheet("./shipping_template.ods")
 
     sheet = doc.sheets[0]
 
@@ -416,42 +414,36 @@ def display_market_sheet(input_items, eve_items, system):
     and the system in question
     """
 
-    # TODO Fix this and also have checks if it's already active
-    os.system('soffice --accept="socket,host=localhost,port=2002;urp;" --norestore --nologo --nodefault')
     desktop = pyoo.Desktop('localhost', 2002)
 
-    # TODO check if already exists, and
-    doc = desktop.create_spreadsheet()
+    doc = desktop.open_spreadsheet("./market_template.ods")
+
 
     sheet = doc.sheets[0]
 
-    headers = ['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk', 
+    headers = ['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk Spread', 
         'Average Sell Min', 'Average Buy Max']
     sheet[0, :7].values = headers
     
     current_row = 1
 
     for item in input_items:
-        name = eve_items[item]['name']
-        buy = eve_items[item][system]['market_info']['buy']['wavg']
-        sell = eve_items[item][system]['market_info']['sell']['wavg']
-        try: 
-            spread = sell - buy / sell
-        except ZeroDivisionError:
-            spread = 0
-
-        spread_isk = (sell - buy)
         average_sell, average_buy = get_average_request(item, system)
-
-        sheet[current_row, :7] = [
-            name,
-            buy,
-            sell,
-            spread,
-            spread_isk,
-            average_sell,
-            average_buy
+        
+        sheet[current_row, :3].values = [
+            eve_items[item]['name'], #name
+            eve_items[item][system]['market_info']['buy']['wavg'], #buy
+            eve_items[item][system]['market_info']['sell']['wavg'] #sell
         ]
+
+        sheet[current_row, 3:5].formulas = [
+            '=($C{0} - $B{0} )/ $B{0}'.format(current_row + 1),
+            '=$C{0} - $B{0}'.format(current_row + 1)
+        ]
+        
+        
+        sheet[current_row, 5].value = average_sell
+        sheet[current_row, 6].value = average_buy
 
         current_row += 1
 
