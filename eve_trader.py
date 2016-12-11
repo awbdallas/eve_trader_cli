@@ -8,7 +8,8 @@ import requests
 import sys
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Float, create_engine, and_
+from sqlalchemy import (Column, Integer, String, DateTime, Float, create_engine, 
+        and_)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from terminaltables import AsciiTable
@@ -27,6 +28,7 @@ def main():
     Fix the displaying into one control somehow 
     Fix items so that the ships packaged as far as volume 
     concerned
+    Fix up main. It's doing too much I think.
     """
 
     if not os.path.exists(_STORE_DB):
@@ -188,7 +190,7 @@ def display_shipping_info(input_items, eve_items, systems, shipping_cost):
             convert_number(difference_percent) + '%',
             convert_number(difference_isk),
             convert_number(volume_to)
-            ])
+        ])
 
     table = AsciiTable(base_table)
     print(table.table)
@@ -210,7 +212,8 @@ def display_market_info(input_items, eve_items, system):
         sell = eve_items[item][system]['market_info']['sell']['wavg']
         spread = 100 * ((sell - buy) / sell)
         spread_isk = (sell - buy)
-        average_sell, average_buy = get_average_request(item, system)
+        average_sell = get_average_buy(item, system)
+        average_buy = get_average_sell(item, system)
 
         base_table.append([
             name,
@@ -220,17 +223,19 @@ def display_market_info(input_items, eve_items, system):
             convert_number(spread_isk),
             convert_number(average_sell),
             convert_number(average_buy)
-            ])
+        ])
 
     table = AsciiTable(base_table)
     print(table.table)
 
 
-def get_average_request(input_item, system):
+def get_average_buy(input_item, system):
     """
-    Purpose    : Getting the average from the cached requested prices
+    Purpose    : Getting average buy
     Parameters : TypeID, and system in question
-    Returns    : Average sell and buy price for the item
+    Returns    : Average buy
+    TODO: 
+    Support Multiple Systems and multiple items
     """
     engine = create_engine('sqlite:///{}'.format(_STORE_DB))
     Session = sessionmaker(bind=engine)
@@ -239,16 +244,35 @@ def get_average_request(input_item, system):
     result = session.query(Item).filter(and_(Item.item_id == input_item, 
         Item.system == system)).all()
     
-    amount = len(result)
-    
-    sell_sum = 0
     buy_sum = 0
 
     for item in result:
-        sell_sum += item.min_sell
         buy_sum += item.max_buy
     
-    return sell_sum / len(result), buy_sum / len(result)
+    return buy_sum / len(result)
+
+
+def get_average_sell(input_item, system):
+    """
+    Purpose    : Getting the average from the cached requested prices
+    Parameters : TypeID, and system in question
+    Returns    : average_sell
+    Support Multiple Systems and multiple items
+    """
+
+    engine = create_engine('sqlite:///{}'.format(_STORE_DB))
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
+    result = session.query(Item).filter(and_(Item.item_id == input_item, 
+        Item.system == system)).all()
+    
+    sell_sum = 0
+
+    for item in result:
+        sell_sum += item.min_sell
+    
+    return sell_sum / len(result)
 
 
 def convert_number(input_number):
@@ -257,6 +281,7 @@ def convert_number(input_number):
     Returns    : Formatted number in str type to second decimal
     Parameters : Any number
     """
+
     try:
         # billions
         if input_number / 1e9 > 1 or input_number / 1e9 < -1:
@@ -275,13 +300,12 @@ def convert_number(input_number):
         return "0"
 
 
-
-# TODO add checking in the future
 def load_user_items(file_input, eve_items):
     """
     Purpose    : Load all the items from the eve_items file into a dict
     Parameters : None
     Returns    : eve items in dict form. Keys can be either number or name
+    TODO: Deal with checking? 
     """
 
     user_items = []
@@ -384,32 +408,40 @@ def display_shipping_sheet(input_items, eve_items, systems, shipping_cost):
 
     sheet = doc.sheets[0]
 
-    headers = ['Item', 'From System Sell', 'To System Sell', 'Shipping Cost',
-        'Difference (%)', 'To System Volume']
-    sheet[0, :6].values = headers
+    headers = [
+        'Item', 'From System Sell', 'To System Sell', 'Shipping Cost',
+        'Difference (%)', 'To System Volume', 'Average_Sell_From', 
+        'Average_Sell_To'
+    ]
+    sheet[0, :8].values = headers
     
-    current_row = 1
 
-    for item in input_items:
+    for row, item in enumerate(input_items, 1):
         name = eve_items[item]['name']
         sell_from = eve_items[item][systems[0]]['market_info']['sell']['min']
         sell_to = eve_items[item][systems[1]]['market_info']['sell']['min']
         shipping = float(eve_items[item]['volume']) * shipping_cost
+       
+        average_sell_from = get_average_sell(item, systems[0])
+        average_sell_to = get_average_sell(item, systems[1])
 
         volume_to = eve_items[item][systems[1]]['market_info']['sell']['volume']
 
-        sheet[current_row, :4].values = [
+        sheet[row, :4].values = [
             name,
             sell_from,
             sell_to,
             shipping
         ]
 
-        sheet[current_row, 4].formula = '=($C{0} - ($B{0} + $D{0}))/ $B{0}'.format(current_row + 1)
+        sheet[row, 4].formula = '=($c{0} - ($b{0} + $d{0}))/ $b{0}'.format(row + 1)
 
-        sheet[current_row, 5].value = volume_to
+        sheet[row, 5:8].values = [
+            volume_to,
+            average_sell_from,
+            average_sell_to
+        ]
 
-        current_row += 1
 
     dt = datetime.utcnow()
     doc.save('{1}shipping_report_{0:%Y}{0:%d}{0:%m}.ods'.format(dt, _STORE_REPORTS))
@@ -434,27 +466,28 @@ def display_market_sheet(input_items, eve_items, system):
         'Average Sell Min', 'Average Buy Max']
     sheet[0, :7].values = headers
     
-    current_row = 1
 
-    for item in input_items:
-        average_sell, average_buy = get_average_request(item, system)
+    for row,item in enumerate(input_items, 1):
+        average_sell = get_average_sell(item, system)
+        average_buy = get_average_Buy(item, system)
         
-        sheet[current_row, :3].values = [
+        sheet[row, :3].values = [
             eve_items[item]['name'], #name
             eve_items[item][system]['market_info']['buy']['wavg'], #buy
             eve_items[item][system]['market_info']['sell']['wavg'] #sell
         ]
 
-        sheet[current_row, 3:5].formulas = [
-            '=($C{0} - $B{0} )/ $B{0}'.format(current_row + 1),
-            '=$C{0} - $B{0}'.format(current_row + 1)
+        sheet[row, 3:5].formulas = [
+            '=($C{0} - $B{0} )/ $B{0}'.format(row + 1),
+            '=$C{0} - $B{0}'.format(row + 1)
         ]
         
         
-        sheet[current_row, 5].value = average_sell
-        sheet[current_row, 6].value = average_buy
+        sheet[row, 5:6].values [
+            average_sell,
+            average_buy
+        ]
 
-        current_row += 1
 
     dt = datetime.utcnow()
     doc.save('{1}market_report_{0:%Y}{0:%d}{0:%m}.ods'.format(dt, _STORE_REPORTS))
