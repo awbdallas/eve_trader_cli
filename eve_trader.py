@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 
 import argparse
-import datetime
 import json
 import os
+import pyoo
 import requests
 import sys
-import pyoo
 
-from terminaltables import AsciiTable
+from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Float, create_engine, and_
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from terminaltables import AsciiTable
 
 Base = declarative_base()
 
 _STORE_DB = "./previous_results.db"
+_STORE_REPORTS = "./"
 
 
 def main():
@@ -40,7 +41,11 @@ def main():
     parser.add_argument("--file", help="File of items")
     parser.add_argument("--shipping", help="System From, System too, Shipping Cost",
                         nargs="+", action="append")
+    parser.add_argument("--directory", help="Directory for reports")
     args = parser.parse_args()
+
+    if args.directory:
+        _STORE_REPORTS = args.directory
 
     # File or item is fine
     if (args.shipping and args.file) or (args.shipping and args.item):
@@ -406,6 +411,10 @@ def display_shipping_sheet(input_items, eve_items, systems, shipping_cost):
 
         current_row += 1
 
+    dt = datetime.utcnow()
+    doc.save('{1}shipping_report_{0:%Y}{0:%d}{0:%m}.ods'.format(dt, _STORE_REPORTS))
+    doc.close()
+
 
 def display_market_sheet(input_items, eve_items, system):
     """
@@ -447,6 +456,10 @@ def display_market_sheet(input_items, eve_items, system):
 
         current_row += 1
 
+    dt = datetime.utcnow()
+    doc.save('{1}market_report_{0:%Y}{0:%d}{0:%m}.ods'.format(dt, _STORE_REPORTS))
+    doc.close()
+
 
 class Item(Base):
     """
@@ -456,7 +469,7 @@ class Item(Base):
     __tablename__ = 'item'
     id = Column(Integer, primary_key=True)
     item_id = Column(Integer)
-    date = Column(DateTime, default=datetime.datetime.utcnow)
+    date = Column(DateTime, default=datetime.utcnow)
     min_sell = Column(Float)
     max_buy = Column(Float)
     system = Column(Integer)
