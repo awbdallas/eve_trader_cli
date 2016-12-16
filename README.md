@@ -36,7 +36,7 @@ Example Usage with Sheets
 I use pyoo for LibreOffice, and it will make a spreadsheet and save it.
 This is the command for office to accept connections ( I use a seperate terminal for it, I'll work it into the program somehow later on)
 
-soffice --accept="socet,host=localhost,port=2002;urp;" --norestore --nologo --nodefault
+soffice --accept="socket,host=localhost,port=2002;urp;" --norestore --nologo --nodefault
 
 Shipping
 ./eve_trader.py --file [file_name] --shipping [system_from] [system_to] cost --sheet

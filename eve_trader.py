@@ -9,14 +9,14 @@ import sys
 
 from datetime import datetime
 from sqlalchemy import (Column, Integer, String, DateTime, Float, create_engine, 
-        and_)
+        and_, Boolean, or_)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from terminaltables import AsciiTable
 
 Base = declarative_base()
 
-_STORE_DB = "./previous_results.db"
+_STORE_DB = "./eve.db"
 _STORE_REPORTS = "./"
 
 
@@ -49,64 +49,40 @@ def main():
     if args.directory:
         _STORE_REPORTS = args.directory
 
+    if args.file:
+        input_items = load_user_input(file_input=args.file)
+    else:
+        input_items = load_user_input(list_input=args.item[0])
+
     # File or item is fine
     if (args.shipping and args.file) or (args.shipping and args.item):
-        eve_items = load_eve_items()
-        if args.file:
-            input_items = load_user_items(args.file, eve_items)
-        else:
-            input_items = []
-
-            for item in args.item[0]:
-                if not eve_items.get(item, None):
-                    print("Item {} is not a valid item".format(item))
-                    sys.exit()
-                else:
-                    input_items.append(eve_items[item]['itemid'])
-
+        
         from_system = args.shipping[0][0]
         to_system = args.shipping[0][1]
         price = int(args.shipping[0][2])
 
-        eve_items = get_item_prices(input_items, eve_items, 
-                [from_system, to_system])
-        store_shipping_info(input_items, eve_items, 
-                [from_system, to_system])
+        get_item_prices(input_items, [from_system, to_system])
+        store_shipping_info(input_items, [from_system, to_system])
 
         if args.sheet:
-            display_shipping_sheet(input_items, eve_items, 
-                    [from_system, to_system], price)
+            display_shipping_sheet(input_items, [from_system, to_system], price)
         else:
-            display_shipping_info(input_items, eve_items, 
-                    [from_system, to_system], price)
+            display_shipping_info(input_items, [from_system, to_system], price)
 
     elif (args.system and args.item) or (args.system and args.file):
-        eve_items = load_eve_items()
 
-        if args.file:
-            input_items = load_user_items(args.file, eve_items)
-        else:
-            input_items = []
-
-            for item in args.item[0]:
-                if not eve_items.get(item, None):
-                    print("Item {} is not a valid item".format(item))
-                    sys.exit()
-                else:
-                    input_items.append(eve_items[item]['itemid'])
-
-        eve_items = get_item_prices(input_items, eve_items, [args.system])
-        store_market_info(input_items, eve_items, args.system)
+        get_item_prices(input_items, [args.system])
+        store_market_info(input_items, args.system)
 
         if args.sheet:
-            display_market_sheet(input_items, eve_items, args.system)
+            display_market_sheet(input_items, args.system)
         else:
-            display_market_info(input_items, eve_items, args.system)
+            display_market_info(input_items, args.system)
     else:
         print("Please have a system and item, or system and a file")
 
 
-def store_market_info(input_items, eve_items, system):
+def store_market_info(input_items, system):
     """
     Purpose    : Store info in regards to markets
     Parameters : Input Typeids, eve_items dict, systems in question
@@ -117,17 +93,17 @@ def store_market_info(input_items, eve_items, system):
 
     add_list = []
 
-    for item in input_items:
+    for item in input_items.keys():
         add_list.append(Item(system=system,
-            min_sell = eve_items[item][system]['market_info']['sell']['wavg'],
-            max_buy = eve_items[item][system]['market_info']['buy']['wavg'],
-            item_id = item))
+            min_sell = input_items[item][system]['market_info']['sell']['wavg'],
+            max_buy = input_items[item][system]['market_info']['buy']['wavg'],
+            typeID = item))
         
     session.add_all(add_list)
     session.commit()
 
 
-def store_shipping_info(input_items, eve_items, systems):
+def store_shipping_info(input_items, systems):
     """
     Purpose    : Store info in regards to shipping from the query
     Parameters : Input Typeids, eve_items dict, systems in question
@@ -139,12 +115,12 @@ def store_shipping_info(input_items, eve_items, systems):
 
     add_list = []
 
-    for item in input_items:
+    for item in input_items.keys():
         for system in systems:
             add_list.append(Item(system=system,
-                min_sell = eve_items[item][system]['market_info']['sell']['wavg'],
-                max_buy = eve_items[item][system]['market_info']['buy']['wavg'],
-                item_id = item))
+                min_sell = input_items[item][system]['market_info']['sell']['wavg'],
+                max_buy = input_items[item][system]['market_info']['buy']['wavg'],
+                typeID = item))
         
     session.add_all(add_list)
     session.commit()
@@ -157,9 +133,30 @@ def create_db():
 
     engine = create_engine('sqlite:///{}'.format(_STORE_DB))
     Base.metadata.create_all(engine)
+    
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    # stores it as a list with each item being a dict
+    with open('types.json') as item_file:
+        data = json.load(item_file)
+    
+    add_list = []
+    for item in data:
+        add_list.append(EveItem(
+                typeID = item['typeID'],
+                volume = item['volume'],
+                groupID = item['groupID'],
+                market = item['market'],
+                typeName = item['typeName']
+        ))
+    
+    session.add_all(add_list)
+    session.commit()
+    
 
 
-def display_shipping_info(input_items, eve_items, systems, shipping_cost):
+def display_shipping_info(input_items, systems, shipping_cost):
     """
     Purpose    : Displaying info in regards to shipping
     Parameters : typeids as input, eve_items that's populated with market data,
@@ -169,17 +166,17 @@ def display_shipping_info(input_items, eve_items, systems, shipping_cost):
     base_table = [['Item', 'From System Sell', 'To System Sell', 'Shipping Cost',
         'Difference (%)', 'Difference (isk)', 'To System Volume']]
 
-    for item in input_items:
-        name = eve_items[item]['name']
-        sell_from = eve_items[item][systems[0]]['market_info']['sell']['min']
-        sell_to = eve_items[item][systems[1]]['market_info']['sell']['min']
-        shipping = float(eve_items[item]['volume']) * shipping_cost
+    for item in input_items.keys():
+        name = input_items[item]['typeName']
+        sell_from = input_items[item][systems[0]]['market_info']['sell']['min']
+        sell_to = input_items[item][systems[1]]['market_info']['sell']['min']
+        shipping = float(input_items[item]['volume']) * shipping_cost
         difference_isk = (sell_to - sell_from) - shipping
         try:
             difference_percent = 100 * ((difference_isk) / sell_to)
         except ZeroDivisionError:
             difference_percent = "100"
-        volume_to = eve_items[item][systems[1]]['market_info']['sell']['volume']
+        volume_to = input_items[item][systems[1]]['market_info']['sell']['volume']
 
 
         base_table.append([
@@ -196,7 +193,7 @@ def display_shipping_info(input_items, eve_items, systems, shipping_cost):
     print(table.table)
 
 
-def display_market_info(input_items, eve_items, system):
+def display_market_info(input_items, system):
     """
     Purpose    : Displaying the info to terminal to make it a little cleaner
     (It ended up looking like a spreadhseet...awkward)
@@ -206,10 +203,10 @@ def display_market_info(input_items, eve_items, system):
 
     base_table = [['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk', 
         'Average Sell Min', 'Average Buy Max']]
-    for item in input_items:
-        name = eve_items[item]['name']
-        buy = eve_items[item][system]['market_info']['buy']['wavg']
-        sell = eve_items[item][system]['market_info']['sell']['wavg']
+    for item in input_items.keys():
+        name = input_items[item]['typeName']
+        buy = input_items[item][system]['market_info']['buy']['wavg']
+        sell = input_items[item][system]['market_info']['sell']['wavg']
         spread = 100 * ((sell - buy) / sell)
         spread_isk = (sell - buy)
         average_sell = get_average_buy(item, system)
@@ -241,7 +238,7 @@ def get_average_buy(input_item, system):
     Session = sessionmaker(bind=engine)
     session = Session()
     
-    result = session.query(Item).filter(and_(Item.item_id == input_item, 
+    result = session.query(Item).filter(and_(Item.typeID == input_item, 
         Item.system == system)).all()
     
     buy_sum = 0
@@ -264,7 +261,7 @@ def get_average_sell(input_item, system):
     Session = sessionmaker(bind=engine)
     session = Session()
     
-    result = session.query(Item).filter(and_(Item.item_id == input_item, 
+    result = session.query(Item).filter(and_(Item.typeID == input_item, 
         Item.system == system)).all()
     
     sell_sum = 0
@@ -300,79 +297,68 @@ def convert_number(input_number):
         return "0"
 
 
-def load_user_items(file_input, eve_items):
+def load_user_input(file_input=None, list_input=None):
     """
-    Purpose    : Load all the items from the eve_items file into a dict
+    Purpose    : Load user input into an easier way to deal with as well as
     Parameters : None
-    Returns    : eve items in dict form. Keys can be either number or name
-    TODO: Deal with checking? 
+    Returns    : Dict of items with keys as type_ids
     """
 
-    user_items = []
+    engine = create_engine('sqlite:///{}'.format(_STORE_DB))
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
+    input_items = {}
 
-    with open(file_input, 'r') as user_file:
-        for line in user_file:
-            line = line.strip()
-            if eve_items.get(line, None):
-                user_items.append(eve_items[line]['itemid'])
+    holding = []
 
-    return user_items
-
-
-def load_eve_items():
-    """
-    Purpose    : Load all the items from the eve_items file into a dict
-    Parameters : None
-    Returns    : eve items in dict form. Keys can be either number or name
-    """
-
-    file_name = "./eve_items.csv"
-    items = {}
-    with open(file_name, 'r') as items_fh:
-        for line in items_fh:
-            # itemid, groupid, name, volume
-            line = line.strip()
-            line = line.split(',')
-            items[line[0]] = {
-                    'itemid': line[0],
-                    'groupid': line[1],
-                    'name': line[2],
-                    'volume': line[3]
-                    }
-            items[line[2]] = {
-                    'itemid': line[0],
-                    'groupid': line[1],
-                    'name': line[2],
-                    'volume': line[3]
-                    }
-    return items
+    if file_input:
+        with open(file_input, 'r') as user_file:
+            for item in user_file:
+                holding.append(item.strip())
+    else:
+        holding = list_input
 
 
-def get_item_prices(input_items, eve_items, system_ids):
+    for item in holding:
+        query_result = session.query(EveItem).filter(or_(EveItem.typeID == item,
+            EveItem.typeName == item)).all()
+
+        if len(query_result) == 0:
+            print("Item: {} Does not exist".format(item))
+        else:
+            # typeid is unique, so should only be one
+            holding_item = query_result[0]
+
+            input_items[holding_item.typeID] = holding_item.to_dict()
+
+    return input_items
+
+
+def get_item_prices(input_items, system_ids):
     """
     Purpose    : get information from eve central  
-    Parameters : itemids, eve_items which will contain all information 
-    gathered from eve_items.csv 
+    Parameters : input_items
     Returns    : eve_items which will now be populated in format
-    eve_tiems[typeid][systemid]['market_info'] to get into the market_info
+    input_items[typeid][systemid]['market_info'] to get into the market_info
     """
 
     urls = []
     # Accounting for as many systems as allowed. 
     for system in system_ids:
-        urls += make_url(input_items, system)
+        urls += make_url(list(input_items.keys()), system)
+
+
 
     for url in urls:
-        response = requests.post(url)
+        response = requests.get(url)
         response_list = json.loads(response.text)
        
         for item in response_list:
             system = str(item['buy']['forQuery']['systems'][0])
-            current_item = str(item['buy']['forQuery']['types'][0])
-            eve_items[current_item][system] = {}
-            eve_items[current_item][system]['market_info'] = item
-
-    return eve_items
+            current_item = item['buy']['forQuery']['types'][0]
+            input_items[current_item][system] = {}
+            input_items[current_item][system]['market_info'] = item
 
 
 def make_url(items, system):
@@ -394,7 +380,7 @@ def make_url(items, system):
     return urls
 
 
-def display_shipping_sheet(input_items, eve_items, systems, shipping_cost):
+def display_shipping_sheet(input_items, systems, shipping_cost):
     """
     Purpose    : Turn info into a LibreOffice/Open OFfice spreadsheet
     Parameters : typeds as input, eve items with market data, systems in question
@@ -416,16 +402,16 @@ def display_shipping_sheet(input_items, eve_items, systems, shipping_cost):
     sheet[0, :8].values = headers
     
 
-    for row, item in enumerate(input_items, 1):
-        name = eve_items[item]['name']
-        sell_from = eve_items[item][systems[0]]['market_info']['sell']['min']
-        sell_to = eve_items[item][systems[1]]['market_info']['sell']['min']
-        shipping = float(eve_items[item]['volume']) * shipping_cost
+    for row, item in enumerate(input_items.keys(), 1):
+        name = input_items[item]['typeName']
+        sell_from = input_items[item][systems[0]]['market_info']['sell']['min']
+        sell_to = input_items[item][systems[1]]['market_info']['sell']['min']
+        shipping = float(input_items[item]['volume']) * shipping_cost
        
         average_sell_from = get_average_sell(item, systems[0])
         average_sell_to = get_average_sell(item, systems[1])
 
-        volume_to = eve_items[item][systems[1]]['market_info']['sell']['volume']
+        volume_to = input_items[item][systems[1]]['market_info']['sell']['volume']
 
         sheet[row, :4].values = [
             name,
@@ -448,7 +434,7 @@ def display_shipping_sheet(input_items, eve_items, systems, shipping_cost):
     doc.close()
 
 
-def display_market_sheet(input_items, eve_items, system):
+def display_market_sheet(input_items, system):
     """
     Purpose    : Display info to spreadhseet for easier use 
     Parameters : typeids as input, eve_items that's populated with market data,
@@ -467,14 +453,14 @@ def display_market_sheet(input_items, eve_items, system):
     sheet[0, :7].values = headers
     
 
-    for row,item in enumerate(input_items, 1):
+    for row,item in enumerate(input_items.keys(), 1):
         average_sell = get_average_sell(item, system)
         average_buy = get_average_Buy(item, system)
         
         sheet[row, :3].values = [
-            eve_items[item]['name'], #name
-            eve_items[item][system]['market_info']['buy']['wavg'], #buy
-            eve_items[item][system]['market_info']['sell']['wavg'] #sell
+            input_items[item]['typeName'], #name
+            input_items[item][system]['market_info']['buy']['wavg'], #buy
+            input_items[item][system]['market_info']['sell']['wavg'] #sell
         ]
 
         sheet[row, 3:5].formulas = [
@@ -499,13 +485,34 @@ class Item(Base):
     Purpose    : Defining the model for SQLAlchemy for Items.  
     """
 
-    __tablename__ = 'item'
+    __tablename__ = 'market_data'
     id = Column(Integer, primary_key=True)
-    item_id = Column(Integer)
+    typeID = Column(Integer)
     date = Column(DateTime, default=datetime.utcnow)
     min_sell = Column(Float)
     max_buy = Column(Float)
     system = Column(Integer)
+
+
+class EveItem(Base):
+    """
+    Purpose: Defining model for the eve_items that exist in the universe, read
+    in from types.json
+    """
+
+    __tablename__ = 'eve_items'
+    typeID = Column(Integer, primary_key=True)
+    volume = Column(Float)
+    groupID = Column(Integer)
+    market = Column(Boolean)
+    typeName = Column(String(255))
+
+    def to_dict(self):
+        return {'typeID': self.typeID,
+                'volume': self.volume,
+                'groupID': self.groupID,
+                'market': self.market,
+                'typeName': self.typeName}
 
 
 if __name__ == '__main__':
