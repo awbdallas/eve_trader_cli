@@ -6,6 +6,7 @@ import os
 import pyoo
 import requests
 import sys
+import pprint
 
 from datetime import datetime
 from sqlalchemy import (Column, Integer, String, DateTime, Float, create_engine, 
@@ -62,8 +63,7 @@ def main():
         price = int(args.shipping[0][2])
 
         get_item_prices(input_items, [from_system, to_system])
-        store_shipping_info(input_items, [from_system, to_system])
-
+        
         if args.sheet:
             display_shipping_sheet(input_items, [from_system, to_system], price)
         else:
@@ -72,7 +72,6 @@ def main():
     elif (args.system and args.item) or (args.system and args.file):
 
         get_item_prices(input_items, [args.system])
-        store_market_info(input_items, args.system)
 
         if args.sheet:
             display_market_sheet(input_items, args.system)
@@ -82,53 +81,46 @@ def main():
         print("Please have a system and item, or system and a file")
 
 
-def store_market_info(input_items, system):
+
+def get_price_info(item, system):
     """
-    Purpose    : Store info in regards to markets
-    Parameters : Input Typeids, eve_items dict, systems in question
+    Purpose     : Get the price info of items from crest. It's worth
+    noting that evecentral gives great information for at that point in the, 
+    but crest gives better information as far as 
+    Parameters  : item_id, system in question (number)
     """
+
     engine = create_engine('sqlite:///{}'.format(_STORE_DB))
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    add_list = []
+    # TODO add checking before this for systems so that when this happens we
 
-    for item in input_items.keys():
-        add_list.append(Item(system=system,
-            min_sell = input_items[item][system]['market_info']['sell']['wavg'],
-            max_buy = input_items[item][system]['market_info']['buy']['wavg'],
-            typeID = item))
-        
-    session.add_all(add_list)
-    session.commit()
-
-
-def store_shipping_info(input_items, systems):
-    """
-    Purpose    : Store info in regards to shipping from the query
-    Parameters : Input Typeids, eve_items dict, systems in question
-    """
+    region = session.query(EveSystems).filter(EveSystems.systemID == system).all()[0].regionID
     
-    engine = create_engine('sqlite:///{}'.format(_STORE_DB))
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    url = "https://crest-tq.eveonline.com/market/{}/history/?type=https://crest-tq.eveonline.com/inventory/types/{}/".format(region, item)
 
-    add_list = []
+    response = requests.get(url)
+    result = json.loads(response.text)
 
-    for item in input_items.keys():
-        for system in systems:
-            add_list.append(Item(system=system,
-                min_sell = input_items[item][system]['market_info']['sell']['wavg'],
-                max_buy = input_items[item][system]['market_info']['buy']['wavg'],
-                typeID = item))
-        
-    session.add_all(add_list)
-    session.commit()
+    avg_price = 0
+    order_count = 0
+    volume = 0
+
+    # last 30 days
+    for item in result['items'][-30:]:
+        avg_price += item['avgPrice']
+        order_count += item['orderCount']
+        volume += item['volume']
+
+
+    return [avg_price/30, order_count/30, volume/30]
 
 
 def create_db():
     """
     Purpose    : initialize db with Item model
+    Parameters : None
     """
 
     engine = create_engine('sqlite:///{}'.format(_STORE_DB))
@@ -137,7 +129,7 @@ def create_db():
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # stores it as a list with each item being a dict
+    # items 
     with open('types.json') as item_file:
         data = json.load(item_file)
     
@@ -151,9 +143,23 @@ def create_db():
                 typeName = item['typeName']
         ))
     
+    
+    # CSV SystemID, RegionID, Region Name, System Name
+    with open('solarsystem_ids.csv') as system_file:
+        for line in system_file:
+            line = line.strip()
+            line = line.split(',')
+
+            add_list.append(EveSystems(
+                systemID = line[0],
+                regionID = line[1],
+                region = line[2],
+                system = line[3]
+                ))
+
+
     session.add_all(add_list)
     session.commit()
-    
 
 
 def display_shipping_info(input_items, systems, shipping_cost):
@@ -172,6 +178,7 @@ def display_shipping_info(input_items, systems, shipping_cost):
         sell_to = input_items[item][systems[1]]['market_info']['sell']['min']
         shipping = float(input_items[item]['volume']) * shipping_cost
         difference_isk = (sell_to - sell_from) - shipping
+
         try:
             difference_percent = 100 * ((difference_isk) / sell_to)
         except ZeroDivisionError:
@@ -202,15 +209,15 @@ def display_market_info(input_items, system):
     """
 
     base_table = [['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk', 
-        'Average Sell Min', 'Average Buy Max']]
+        'Average Sell', 'Average Sold']]
     for item in input_items.keys():
         name = input_items[item]['typeName']
         buy = input_items[item][system]['market_info']['buy']['wavg']
         sell = input_items[item][system]['market_info']['sell']['wavg']
+        average_sell = input_items[item][system]['market_history']['avg_price']
+        avg_sold = input_items[item][system]['market_history']['avg_sold']
         spread = 100 * ((sell - buy) / sell)
         spread_isk = (sell - buy)
-        average_sell = get_average_buy(item, system)
-        average_buy = get_average_sell(item, system)
 
         base_table.append([
             name,
@@ -219,7 +226,7 @@ def display_market_info(input_items, system):
             convert_number(spread) + '%',
             convert_number(spread_isk),
             convert_number(average_sell),
-            convert_number(average_buy)
+            convert_number(avg_sold)
         ])
 
     table = AsciiTable(base_table)
@@ -361,6 +368,17 @@ def get_item_prices(input_items, system_ids):
             input_items[current_item][system]['market_info'] = item
 
 
+    for item in input_items.keys():
+        for system in system_ids:
+            # returns a dict
+            result = get_price_info(item, system)
+            input_items[item][system]['market_history'] = {
+                    'avg_price' : result[0],
+                    'avg_order_count' : result[1],
+                    'avg_sold' : result[2]
+            }
+
+
 def make_url(items, system):
     """
     Purpose    : Making URL with eve_central to query
@@ -395,37 +413,39 @@ def display_shipping_sheet(input_items, systems, shipping_cost):
     sheet = doc.sheets[0]
 
     headers = [
-        'Item', 'From System Sell', 'To System Sell', 'Shipping Cost',
-        'Difference (%)', 'To System Volume', 'Average_Sell_From', 
-        'Average_Sell_To'
+        'Item', 'From System Sell','Avg Sell From', 'To System Sell', 
+        'Avg Sell To', 'Shipping Cost', 'Difference (%)', 
+        'To System Volume', 'Average Sold'
     ]
-    sheet[0, :8].values = headers
+
+    sheet[0, :9].values = headers
     
 
     for row, item in enumerate(input_items.keys(), 1):
         name = input_items[item]['typeName']
         sell_from = input_items[item][systems[0]]['market_info']['sell']['min']
+        avg_sell_from = input_items[item][systems[0]]['market_history']['avg_price']
         sell_to = input_items[item][systems[1]]['market_info']['sell']['min']
+        avg_sell_to = input_items[item][systems[1]]['market_history']['avg_price']
         shipping = float(input_items[item]['volume']) * shipping_cost
-       
-        average_sell_from = get_average_sell(item, systems[0])
-        average_sell_to = get_average_sell(item, systems[1])
-
         volume_to = input_items[item][systems[1]]['market_info']['sell']['volume']
+        volume_sold = input_items[item][systems[1]]['market_history']['avg_sold']
 
-        sheet[row, :4].values = [
+
+        sheet[row, :6].values = [
             name,
             sell_from,
+            avg_sell_from,
             sell_to,
+            avg_sell_to,
             shipping
         ]
 
-        sheet[row, 4].formula = '=($c{0} - ($b{0} + $d{0}))/ $b{0}'.format(row + 1)
+        sheet[row, 6].formula = '=($d{0} - ($b{0} + $f{0}))/ ($b{0} + $f{0})'.format(row + 1)
 
-        sheet[row, 5:8].values = [
+        sheet[row, 7:9].values = [
             volume_to,
-            average_sell_from,
-            average_sell_to
+            volume_sold
         ]
 
 
@@ -449,7 +469,7 @@ def display_market_sheet(input_items, system):
     sheet = doc.sheets[0]
 
     headers = ['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk Spread', 
-        'Average Sell Min', 'Average Buy Max']
+        'Average Price', 'Average Sold']
     sheet[0, :7].values = headers
     
 
@@ -464,14 +484,14 @@ def display_market_sheet(input_items, system):
         ]
 
         sheet[row, 3:5].formulas = [
-            '=($C{0} - $B{0} )/ $B{0}'.format(row + 1),
-            '=$C{0} - $B{0}'.format(row + 1)
+            '=($D{0} - $B{0} )/ $B{0}'.format(row + 1),
+            '=$D{0} - $B{0}'.format(row + 1)
         ]
         
         
         sheet[row, 5:6].values [
-            average_sell,
-            average_buy
+            input_items[item][system]['market_history']['avg_price'],
+            input_items[item][system]['market_history']['avg_sold']
         ]
 
 
@@ -489,8 +509,6 @@ class Item(Base):
     id = Column(Integer, primary_key=True)
     typeID = Column(Integer)
     date = Column(DateTime, default=datetime.utcnow)
-    min_sell = Column(Float)
-    max_buy = Column(Float)
     system = Column(Integer)
 
 
@@ -502,6 +520,7 @@ class EveItem(Base):
 
     __tablename__ = 'eve_items'
     typeID = Column(Integer, primary_key=True)
+    # Amount of market
     volume = Column(Float)
     groupID = Column(Integer)
     market = Column(Boolean)
@@ -513,6 +532,18 @@ class EveItem(Base):
                 'groupID': self.groupID,
                 'market': self.market,
                 'typeName': self.typeName}
+
+        
+class EveSystems(Base):
+    """
+    Purpose: Defining model for the systems in eve
+    """
+
+    __tablename__ = 'eve_systems'
+    systemID = Column(Integer, primary_key=True)
+    regionID = Column(Integer)
+    region = Column(String(255))
+    system = Column(String(255))
 
 
 if __name__ == '__main__':
