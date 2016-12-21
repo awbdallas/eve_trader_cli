@@ -88,6 +88,7 @@ def get_price_info(item, system):
     noting that evecentral gives great information for at that point in the, 
     but crest gives better information as far as 
     Parameters  : item_id, system in question (number)
+    Returns : [avg_price, avg_order_count, avgerage_voume]
     """
 
     engine = create_engine('sqlite:///{}'.format(_STORE_DB))
@@ -119,7 +120,7 @@ def get_price_info(item, system):
 
 def create_db():
     """
-    Purpose    : initialize db with Item model
+    Purpose    : initialize db with Item model and solary system model
     Parameters : None
     """
 
@@ -165,14 +166,20 @@ def create_db():
 def display_shipping_info(input_items, systems, shipping_cost):
     """
     Purpose    : Displaying info in regards to shipping
-    Parameters : typeids as input, eve_items that's populated with market data,
-    and the system in question
+    Parameters : input items that's populated, systems in question, and shipping
+    Cost
+
+    Note: Can't display all the information. Only basics just because 
+    of limits in size because of it being terminal based
     """
 
     base_table = [['Item', 'From System Sell', 'To System Sell', 'Shipping Cost',
         'Difference (%)', 'Difference (isk)', 'To System Volume']]
+    
+    items = list(input_items.keys())
+    items.sort() 
 
-    for item in input_items.keys():
+    for item in items:
         name = input_items[item]['typeName']
         sell_from = input_items[item][systems[0]]['market_info']['sell']['min']
         sell_to = input_items[item][systems[1]]['market_info']['sell']['min']
@@ -183,6 +190,7 @@ def display_shipping_info(input_items, systems, shipping_cost):
             difference_percent = 100 * ((difference_isk) / sell_to)
         except ZeroDivisionError:
             difference_percent = "100"
+
         volume_to = input_items[item][systems[1]]['market_info']['sell']['volume']
 
 
@@ -204,13 +212,17 @@ def display_market_info(input_items, system):
     """
     Purpose    : Displaying the info to terminal to make it a little cleaner
     (It ended up looking like a spreadhseet...awkward)
-    Parameters : typeids as input, eve_items that's populated with market data,
-    and the system in question
+    Parameters : input items which contains items populated with all the price
+    information and shuch, and system in question
     """
 
     base_table = [['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk', 
         'Average Sell', 'Average Sold']]
-    for item in input_items.keys():
+
+    items = list(input_items.keys())
+    items.sort()
+
+    for item in items:
         name = input_items[item]['typeName']
         buy = input_items[item][system]['market_info']['buy']['wavg']
         sell = input_items[item][system]['market_info']['sell']['wavg']
@@ -231,52 +243,6 @@ def display_market_info(input_items, system):
 
     table = AsciiTable(base_table)
     print(table.table)
-
-
-def get_average_buy(input_item, system):
-    """
-    Purpose    : Getting average buy
-    Parameters : TypeID, and system in question
-    Returns    : Average buy
-    TODO: 
-    Support Multiple Systems and multiple items
-    """
-    engine = create_engine('sqlite:///{}'.format(_STORE_DB))
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    
-    result = session.query(Item).filter(and_(Item.typeID == input_item, 
-        Item.system == system)).all()
-    
-    buy_sum = 0
-
-    for item in result:
-        buy_sum += item.max_buy
-    
-    return buy_sum / len(result)
-
-
-def get_average_sell(input_item, system):
-    """
-    Purpose    : Getting the average from the cached requested prices
-    Parameters : TypeID, and system in question
-    Returns    : average_sell
-    Support Multiple Systems and multiple items
-    """
-
-    engine = create_engine('sqlite:///{}'.format(_STORE_DB))
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    
-    result = session.query(Item).filter(and_(Item.typeID == input_item, 
-        Item.system == system)).all()
-    
-    sell_sum = 0
-
-    for item in result:
-        sell_sum += item.min_sell
-    
-    return sell_sum / len(result)
 
 
 def convert_number(input_number):
@@ -307,7 +273,7 @@ def convert_number(input_number):
 def load_user_input(file_input=None, list_input=None):
     """
     Purpose    : Load user input into an easier way to deal with as well as
-    Parameters : None
+    Parameters : file_input (file_name) or list input ("list items") 
     Returns    : Dict of items with keys as type_ids
     """
 
@@ -401,8 +367,8 @@ def make_url(items, system):
 def display_shipping_sheet(input_items, systems, shipping_cost):
     """
     Purpose    : Turn info into a LibreOffice/Open OFfice spreadsheet
-    Parameters : typeds as input, eve items with market data, systems in question
-    and the shipping cost for it
+    Parameters : input items with market info, systems in question
+    and the shipping cost 
     Returns    : None
     """
 
@@ -413,9 +379,9 @@ def display_shipping_sheet(input_items, systems, shipping_cost):
     sheet = doc.sheets[0]
 
     headers = [
-        'Item', 'From System Sell','Avg Sell From', 'To System Sell', 
-        'Avg Sell To', 'Shipping Cost', 'Difference (%)', 
-        'To System Volume', 'Average Sold'
+        'Item', 'From System Sell', 'To System Sell', 'Shipping Cost',
+        'Difference (%)', 'To System Volume', 'Average Sold', 
+        'Average Sold From', 'Average Sold To'
     ]
 
     sheet[0, :9].values = headers
@@ -432,20 +398,20 @@ def display_shipping_sheet(input_items, systems, shipping_cost):
         volume_sold = input_items[item][systems[1]]['market_history']['avg_sold']
 
 
-        sheet[row, :6].values = [
+        sheet[row, :4].values = [
             name,
             sell_from,
-            avg_sell_from,
             sell_to,
-            avg_sell_to,
             shipping
         ]
 
-        sheet[row, 6].formula = '=($d{0} - ($b{0} + $f{0}))/ ($b{0} + $f{0})'.format(row + 1)
+        sheet[row, 4].formula = '=($c{0} - ($b{0} + $d{0}))/ ($b{0} + $d{0})'.format(row + 1)
 
-        sheet[row, 7:9].values = [
+        sheet[row, 5:9].values = [
             volume_to,
-            volume_sold
+            volume_sold,
+            avg_sell_from,
+            avg_sell_to
         ]
 
 
@@ -457,8 +423,8 @@ def display_shipping_sheet(input_items, systems, shipping_cost):
 def display_market_sheet(input_items, system):
     """
     Purpose    : Display info to spreadhseet for easier use 
-    Parameters : typeids as input, eve_items that's populated with market data,
-    and the system in question
+    Parameters : Input items that contains all market info, and systems in 
+    question
     """
 
     desktop = pyoo.Desktop('localhost', 2002)
@@ -474,8 +440,6 @@ def display_market_sheet(input_items, system):
     
 
     for row,item in enumerate(input_items.keys(), 1):
-        average_sell = get_average_sell(item, system)
-        average_buy = get_average_Buy(item, system)
         
         sheet[row, :3].values = [
             input_items[item]['typeName'], #name
@@ -484,15 +448,16 @@ def display_market_sheet(input_items, system):
         ]
 
         sheet[row, 3:5].formulas = [
-            '=($D{0} - $B{0} )/ $B{0}'.format(row + 1),
-            '=$D{0} - $B{0}'.format(row + 1)
+            '=($C{0} - $B{0} )/ $B{0}'.format(row + 1),
+            '=$C{0} - $B{0}'.format(row + 1)
         ]
         
-        
-        sheet[row, 5:6].values [
+        sheet[row, 5:7].values = [
             input_items[item][system]['market_history']['avg_price'],
             input_items[item][system]['market_history']['avg_sold']
         ]
+
+
 
 
     dt = datetime.utcnow()
@@ -520,7 +485,6 @@ class EveItem(Base):
 
     __tablename__ = 'eve_items'
     typeID = Column(Integer, primary_key=True)
-    # Amount of market
     volume = Column(Float)
     groupID = Column(Integer)
     market = Column(Boolean)
