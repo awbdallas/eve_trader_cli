@@ -6,7 +6,8 @@ import os
 import pyoo
 import requests
 import sys
-import pprint
+import subprocess 
+import time 
 
 from datetime import datetime
 from sqlalchemy import (Column, Integer, String, DateTime, Float, create_engine, 
@@ -95,11 +96,11 @@ def get_price_info(item, system):
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # TODO add checking before this for systems so that when this happens we
-
     region = session.query(EveSystems).filter(EveSystems.systemID == system).all()[0].regionID
+    session.close()
     
     url = "https://crest-tq.eveonline.com/market/{}/history/?type=https://crest-tq.eveonline.com/inventory/types/{}/".format(region, item)
+
 
     response = requests.get(url)
     result = json.loads(response.text)
@@ -161,6 +162,7 @@ def create_db():
 
     session.add_all(add_list)
     session.commit()
+    session.close()
 
 
 def display_shipping_info(input_items, systems, shipping_cost):
@@ -305,6 +307,8 @@ def load_user_input(file_input=None, list_input=None):
 
             input_items[holding_item.typeID] = holding_item.to_dict()
 
+    session.close()
+
     return input_items
 
 
@@ -372,7 +376,20 @@ def display_shipping_sheet(input_items, systems, shipping_cost):
     Returns    : None
     """
 
-    desktop = pyoo.Desktop('localhost', 2002)
+    subprocess.Popen(['mkfifo', 'temp'])
+    p_office = subprocess.Popen(
+        ' '.join(['/usr/bin/soffice', 
+        '--accept="pipe,name=temp;urp;"',
+        '--norestore', 
+        '--nologo', 
+        '--nodefault', 
+        '--headless']),
+        shell=True, stdout=subprocess.PIPE)
+
+    # have to give it time to start 
+    time.sleep(5)
+
+    desktop = pyoo.Desktop(pipe='temp')
 
     doc = desktop.open_spreadsheet("./shipping_template.ods")
 
@@ -418,6 +435,9 @@ def display_shipping_sheet(input_items, systems, shipping_cost):
     dt = datetime.utcnow()
     doc.save('{1}shipping_report_{0:%Y}{0:%d}{0:%m}.ods'.format(dt, _STORE_REPORTS))
     doc.close()
+    
+    p_office.kill()
+    subprocess.Popen(['rm', 'temp'])
 
 
 def display_market_sheet(input_items, system):
@@ -427,7 +447,20 @@ def display_market_sheet(input_items, system):
     question
     """
 
-    desktop = pyoo.Desktop('localhost', 2002)
+    subprocess.Popen(['mkfifo', 'temp'])
+    p_office = subprocess.Popen(
+        ' '.join(['/usr/bin/soffice', 
+        '--accept="pipe,name=temp;urp;"',
+        '--norestore', 
+        '--nologo', 
+        '--nodefault', 
+        '--headless']),
+        shell=True, stdout=subprocess.PIPE)
+
+    # have to give it time to start 
+    time.sleep(5)
+
+    desktop = pyoo.Desktop(pipe='temp')
 
     doc = desktop.open_spreadsheet("./market_template.ods")
 
@@ -463,6 +496,9 @@ def display_market_sheet(input_items, system):
     dt = datetime.utcnow()
     doc.save('{1}market_report_{0:%Y}{0:%d}{0:%m}.ods'.format(dt, _STORE_REPORTS))
     doc.close()
+    
+    p_office.kill()
+    subprocess.Popen(['rm', 'temp'])
 
 
 class Item(Base):
