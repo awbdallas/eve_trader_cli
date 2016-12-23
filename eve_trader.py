@@ -8,6 +8,9 @@ import requests
 import sys
 import subprocess 
 import time 
+import crest
+import evecentral
+import pprint
 
 from datetime import datetime
 from sqlalchemy import (Column, Integer, String, DateTime, Float, create_engine, 
@@ -18,8 +21,8 @@ from terminaltables import AsciiTable
 
 Base = declarative_base()
 
-_STORE_DB = "./eve.db"
-_STORE_REPORTS = "./"
+_STORE_DB = "./data/eve.db"
+_STORE_REPORTS = "./reports/"
 
 
 def main():
@@ -82,42 +85,46 @@ def main():
         print("Please have a system and item, or system and a file")
 
 
-
-def get_price_info(item, system):
+def get_price_info(input_items, system):
     """
-    Purpose     : Get the price info of items from crest. It's worth
-    noting that evecentral gives great information for at that point in the, 
-    but crest gives better information as far as 
-    Parameters  : item_id, system in question (number)
+    Purpose     : Populating input_items with price history information
+    by calling eve central via the crest library
+    Parameters  : input_items, system in question
     Returns : [avg_price, avg_order_count, avgerage_voume]
     """
 
+    region_id = system_to_region(system)
+
+    for item in input_items.keys():
+        data = crest.market_history(item, region_id)
+
+        avg_price = 0
+        avg_order_count = 0
+        avg_sold = 0
+
+        for day in data:
+            avg_price += day['avgPrice']
+            avg_order_count += day['orderCount']
+            avg_sold += day['volume']
+
+        input_items[item][system]['market_history'] = {
+            'avg_price' : avg_price /30,
+            'avg_order_count' : avg_order_count /30,
+            'avg_sold' :  avg_sold / 30
+        }
+
+
+def system_to_region(system_id):
     engine = create_engine('sqlite:///{}'.format(_STORE_DB))
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    region = session.query(EveSystems).filter(EveSystems.systemID == system).all()[0].regionID
+    region = session.query(EveSystems).filter(EveSystems.systemID == system_id)\
+            .all()[0].regionID
+
     session.close()
-    
-    url = "https://crest-tq.eveonline.com/market/{}/history/?type=https://crest-tq.eveonline.com/inventory/types/{}/".format(region, item)
 
-
-    response = requests.get(url)
-    result = json.loads(response.text)
-
-    avg_price = 0
-    order_count = 0
-    volume = 0
-
-    # last 30 days
-    for item in result['items'][-30:]:
-        avg_price += item['avgPrice']
-        order_count += item['orderCount']
-        volume += item['volume']
-
-
-    return [avg_price/30, order_count/30, volume/30]
-
+    return region
 
 def create_db():
     """
@@ -264,7 +271,7 @@ def convert_number(input_number):
         # thousands
         elif input_number / 1e3 > 1 or input_number / 1e3 < -1:
             return "%.2fK" % round((input_number / 1e3), 2)
-        # everything that's left
+        # hundreds
         else:
             return "%.2f" % round(input_number, 2)
         return "0"
@@ -315,57 +322,26 @@ def load_user_input(file_input=None, list_input=None):
 def get_item_prices(input_items, system_ids):
     """
     Purpose    : get information from eve central  
-    Parameters : input_items
+    Parameters : input_items, system_ids
     Returns    : eve_items which will now be populated in format
     input_items[typeid][systemid]['market_info'] to get into the market_info
     """
 
     urls = []
     # Accounting for as many systems as allowed. 
+    
+    
     for system in system_ids:
-        urls += make_url(list(input_items.keys()), system)
+        result = json.loads(evecentral.marketstat(list(input_items.keys()), 
+            system, type='json'))
 
-
-
-    for url in urls:
-        response = requests.get(url)
-        response_list = json.loads(response.text)
-       
-        for item in response_list:
-            system = str(item['buy']['forQuery']['systems'][0])
+        for item in result:
             current_item = item['buy']['forQuery']['types'][0]
             input_items[current_item][system] = {}
             input_items[current_item][system]['market_info'] = item
 
-
-    for item in input_items.keys():
-        for system in system_ids:
-            # returns a dict
-            result = get_price_info(item, system)
-            input_items[item][system]['market_history'] = {
-                    'avg_price' : result[0],
-                    'avg_order_count' : result[1],
-                    'avg_sold' : result[2]
-            }
-
-
-def make_url(items, system):
-    """
-    Purpose    : Making URL with eve_central to query
-    Parameters : the items to query, and the system to query
-    Returns    : a list of urls
-    """
-
-    base_url = "http://api.eve-central.com/api/marketstat/json?"
-    urls = []
-
-    # I believe the item limit is about 100 per request
-    chunks = [items[i:i+100] for i in range(0, len(items), 100)]
-    
-    for chunk in chunks:
-        urls.append(base_url + '&'.join('typeid=%s' % x for x in chunk)
-                    + '&usesystem=%s' % system)
-    return urls
+    for system in system_ids:
+        get_price_info(input_items, system)
 
 
 def display_shipping_sheet(input_items, systems, shipping_cost):
@@ -391,7 +367,7 @@ def display_shipping_sheet(input_items, systems, shipping_cost):
 
     desktop = pyoo.Desktop(pipe='temp')
 
-    doc = desktop.open_spreadsheet("./shipping_template.ods")
+    doc = desktop.open_spreadsheet("./templates/shipping_template.ods")
 
     sheet = doc.sheets[0]
 
@@ -400,35 +376,25 @@ def display_shipping_sheet(input_items, systems, shipping_cost):
         'Difference (%)', 'To System Volume', 'Average Sold', 
         'Average Sold From', 'Average Sold To'
     ]
-
     sheet[0, :9].values = headers
     
 
     for row, item in enumerate(input_items.keys(), 1):
-        name = input_items[item]['typeName']
-        sell_from = input_items[item][systems[0]]['market_info']['sell']['min']
-        avg_sell_from = input_items[item][systems[0]]['market_history']['avg_price']
-        sell_to = input_items[item][systems[1]]['market_info']['sell']['min']
-        avg_sell_to = input_items[item][systems[1]]['market_history']['avg_price']
-        shipping = float(input_items[item]['volume']) * shipping_cost
-        volume_to = input_items[item][systems[1]]['market_info']['sell']['volume']
-        volume_sold = input_items[item][systems[1]]['market_history']['avg_sold']
-
 
         sheet[row, :4].values = [
-            name,
-            sell_from,
-            sell_to,
-            shipping
+            input_items[item]['typeName'], # Name
+            input_items[item][systems[0]]['market_info']['sell']['min'],
+            input_items[item][systems[1]]['market_info']['sell']['min'], 
+            float(input_items[item]['volume']) * shipping_cost
         ]
 
         sheet[row, 4].formula = '=($c{0} - ($b{0} + $d{0}))/ ($b{0} + $d{0})'.format(row + 1)
 
         sheet[row, 5:9].values = [
-            volume_to,
-            volume_sold,
-            avg_sell_from,
-            avg_sell_to
+            input_items[item][systems[1]]['market_info']['sell']['volume'],
+            input_items[item][systems[1]]['market_history']['avg_sold'],
+            input_items[item][systems[0]]['market_history']['avg_price'],
+            input_items[item][systems[1]]['market_history']['avg_price']
         ]
 
 
@@ -461,10 +427,7 @@ def display_market_sheet(input_items, system):
     time.sleep(5)
 
     desktop = pyoo.Desktop(pipe='temp')
-
-    doc = desktop.open_spreadsheet("./market_template.ods")
-
-
+    doc = desktop.open_spreadsheet("./templates/market_template.ods")
     sheet = doc.sheets[0]
 
     headers = ['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk Spread', 
@@ -489,9 +452,6 @@ def display_market_sheet(input_items, system):
             input_items[item][system]['market_history']['avg_price'],
             input_items[item][system]['market_history']['avg_sold']
         ]
-
-
-
 
     dt = datetime.utcnow()
     doc.save('{1}market_report_{0:%Y}{0:%d}{0:%m}.ods'.format(dt, _STORE_REPORTS))
