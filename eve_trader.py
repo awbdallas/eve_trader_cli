@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import argparse
 import json
 import os
 import pyoo
@@ -10,8 +9,8 @@ import subprocess
 import time 
 import crest
 import evecentral
-import pprint
 
+from argparse import ArgumentParser
 from datetime import datetime
 from sqlalchemy import (Column, Integer, String, DateTime, Float, create_engine, 
         and_, Boolean, or_)
@@ -39,7 +38,7 @@ def main():
     if not os.path.exists(_STORE_DB):
         create_db()
 
-    parser = argparse.ArgumentParser()
+    parser = ArgumentParser()
     parser.add_argument("--system", help="System to query", default="30000142")
     parser.add_argument("--sheet", help="Output to OO/LO spreadsheet", action='store_true',
             default=False)
@@ -90,28 +89,10 @@ def get_price_info(input_items, system):
     Purpose     : Populating input_items with price history information
     by calling eve central via the crest library
     Parameters  : input_items, system in question
-    Returns : [avg_price, avg_order_count, avgerage_voume]
     """
 
     region_id = system_to_region(system)
-
-    for item in input_items.keys():
-        data = crest.market_history(item, region_id)
-
-        avg_price = 0
-        avg_order_count = 0
-        avg_sold = 0
-
-        for day in data:
-            avg_price += day['avgPrice']
-            avg_order_count += day['orderCount']
-            avg_sold += day['volume']
-
-        input_items[item][system]['market_history'] = {
-            'avg_price' : avg_price /30,
-            'avg_order_count' : avg_order_count /30,
-            'avg_sold' :  avg_sold / 30
-        }
+    crest.avg_market_history(input_items, region_id, system)
 
 
 def system_to_region(system_id):
@@ -332,8 +313,7 @@ def get_item_prices(input_items, system_ids):
     
     
     for system in system_ids:
-        result = json.loads(evecentral.marketstat(list(input_items.keys()), 
-            system, type='json'))
+        result = evecentral.marketstat(list(input_items.keys()), system)
 
         for item in result:
             current_item = item['buy']['forQuery']['types'][0]
