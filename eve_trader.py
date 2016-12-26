@@ -2,7 +2,6 @@
 
 import json
 import os
-import pyoo
 import requests
 import sys
 import subprocess 
@@ -22,6 +21,8 @@ Base = declarative_base()
 
 _STORE_DB = "./data/eve.db"
 _STORE_REPORTS = "./reports/"
+_TYPES_FILE = "./data/types.json"
+_SOLAR_SYSTEMS ="./data/solarsystem_ids.csv"
 
 
 def main():
@@ -49,6 +50,9 @@ def main():
                         nargs="+", action="append")
     parser.add_argument("--directory", help="Directory for reports")
     args = parser.parse_args()
+
+    if args.sheet:
+        import pyoo
 
     if args.directory:
         _STORE_REPORTS = args.directory
@@ -120,7 +124,7 @@ def create_db():
     session = Session()
 
     # items 
-    with open('types.json') as item_file:
+    with open(_TYPES_FILE) as item_file:
         data = json.load(item_file)
     
     add_list = []
@@ -135,7 +139,7 @@ def create_db():
     
     
     # CSV SystemID, RegionID, Region Name, System Name
-    with open('solarsystem_ids.csv') as system_file:
+    with open(_SOLAR_SYSTEMS) as system_file:
         for line in system_file:
             line = line.strip()
             line = line.split(',')
