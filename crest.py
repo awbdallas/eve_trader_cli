@@ -4,9 +4,13 @@ import requests
 import queue
 import threading
 import time
+
+from settings import _STORE_DB
+from eve_trader import system_to_region
 from json import loads
 
-def avg_market_history(input_items, region, system, days=30):
+
+def crest_request(request_type, system, list_of_items):
     """
     Purpose: Add market history information to the input_items dict
     Parameters:  input_items, region_id, and systemid
@@ -20,43 +24,31 @@ def avg_market_history(input_items, region, system, days=30):
     but I need to fine tune some of it so I'll work in the future to implement that
     """
 
-    # I haven't used threading that much before so I'm taking form this guide:
-    
+    # 0: item_id, 1: systemid, 2: regionid, 3: endpoint
+    region = system_to_region(system)
     urls = []
+    endpoint = "https://crest-tq.eveonline.com"
+    # There's more actions, but I'm really on concerned about 
 
-    for item in input_items.keys(): 
-        endpoint = "https://crest-tq.eveonline.com"
-        # TODO error checking
-        item_url = endpoint + "/inventory/types/{}/".format(item)
-        market = "/market/{}/history/".format(region)
+    actions = {
+        'item' : '{3}/inventory/types/{0}/',
+        'item_history' : '{3}/market/{2}/history/?type={3}/inventory/types/{0}/',
+        'item_sell' : '{3}/market/{2}/orders/sell/?type={3}/inventory/types/{0}/',
+        'item_buy' : '{3}/market/{2}/orders/buy/?type={3}/inventory/types/{0}/'
+    }
 
-        url = endpoint + market + "?type=" + item_url
-
+    for item in list_of_items: 
         urls.append({
-            'url' : url,
+            'url' : actions[request_type].format(item, system, region, endpoint),
             'item' : item,
             'system' :system
         })
 
     request_data(urls)
 
-    for url in urls:
+    # Now contains data
+    return urls
 
-        avg_price = 0
-        avg_order_count = 0
-        avg_sold = 0
-        
-        # Last x days
-        for day in url['data']['items'][-days:]:
-            avg_price += day['avgPrice']
-            avg_order_count += day['orderCount']
-            avg_sold += day['volume']
-        
-        input_items[url['item']][url['system']]['market_history'] = {
-                'avg_price' : avg_price /days,
-                'avg_order_count' : avg_order_count /days,
-                'avg_sold' : avg_sold/days
-        }
 
 def request_data(urls):
     """

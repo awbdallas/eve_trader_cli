@@ -8,7 +8,9 @@ import subprocess
 import time 
 import crest
 import evecentral
+from datetime import datetime, timedelta
 
+from dateutil import parser
 from argparse import ArgumentParser
 from datetime import datetime
 from sqlalchemy import (Column, Integer, String, DateTime, Float, create_engine, 
@@ -16,14 +18,10 @@ from sqlalchemy import (Column, Integer, String, DateTime, Float, create_engine,
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from terminaltables import AsciiTable
+from settings import (_STORE_DB, _STORE_REPORTS, _TYPES_FILE, 
+        _SOLAR_SYSTEMS)
 
 Base = declarative_base()
-
-_STORE_DB = "./data/eve.db"
-_STORE_REPORTS = "./reports/"
-_TYPES_FILE = "./data/types.json"
-_SOLAR_SYSTEMS ="./data/solarsystem_ids.csv"
-
 
 def main():
 
@@ -88,16 +86,81 @@ def main():
         print("Please have a system and item, or system and a file")
 
 
-def get_price_info(input_items, system):
+def get_average_price_info(input_items, system, days=30):
     """
     Purpose     : Populating input_items with price history information
     by calling eve central via the crest library
-    Parameters  : input_items, system in question
+    Parameters  : input_items, system in question, amount of days for average
+    defaults to 30
     """
 
-    region_id = system_to_region(system)
-    crest.avg_market_history(input_items, region_id, system)
+    data = crest.crest_request('item_history', system, list(input_items.keys()))
 
+    for item in data:
+
+        avg_price = 0
+        avg_order_count = 0
+        avg_sold = 0
+
+        
+        # Last x days
+        for day in item['data']['items'][-days:]:
+            avg_price += day['avgPrice']
+            avg_order_count += day['orderCount']
+            avg_sold += day['volume']
+        
+        input_items[item['item']][item['system']]['market_history'] = {
+                'avg_price' : avg_price /days,
+                'avg_order_count' : avg_order_count /days,
+                'avg_sold' : avg_sold/days
+        }
+
+
+def get_buy_orders_competition(input_items, system):
+    """
+    Purpose     : Gets the amount of people that are competing
+    in the market in the last 12hrs
+    Parameters  : input_items, system in question
+    TODO: Be able to narrow to system/station because it's region now
+    """
+    
+    data = crest.crest_request('item_buy', system, list(input_items.keys()))
+
+    greater_than_date = datetime.now() + timedelta(hours=-12)
+
+    for item in data:
+        
+        amount_of_orders = 0
+
+        for order in item['data']['items']:
+            if parser.parse(order['issued']) > greater_than_date:
+                amount_of_orders += 1
+        
+        input_items[item['item']][item['system']]['buy_history'] = amount_of_orders
+
+
+def get_sell_orders_competition(input_items, system):
+    """
+    Purpose     : Gets the amount of people competing the market
+    in the market in the last 12hrs
+    Parameters  : input_items, system in question
+    TODO: Be able to narrow to system/station because it's region now
+
+    """
+
+    data = crest.crest_request('item_sell', system, list(input_items.keys()))
+
+    greater_than_date = datetime.now() + timedelta(hours=-12)
+
+    for item in data:
+        
+        amount_of_orders = 0
+
+        for order in item['data']['items']:
+            if parser.parse(order['issued']) > greater_than_date:
+                amount_of_orders += 1
+        
+        input_items[item['item']][item['system']]['sell_history'] = amount_of_orders
 
 def system_to_region(system_id):
     engine = create_engine('sqlite:///{}'.format(_STORE_DB))
@@ -110,6 +173,7 @@ def system_to_region(system_id):
     session.close()
 
     return region
+
 
 def create_db():
     """
@@ -211,7 +275,7 @@ def display_market_info(input_items, system):
     """
 
     base_table = [['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk', 
-        'Average Sell', 'Average Sold']]
+        'Average Sell', 'Average Sold', 'Buyers', 'Sellers']]
 
     items = list(input_items.keys())
     items.sort()
@@ -224,6 +288,8 @@ def display_market_info(input_items, system):
         avg_sold = input_items[item][system]['market_history']['avg_sold']
         spread = 100 * ((sell - buy) / sell)
         spread_isk = (sell - buy)
+        buyers = input_items[item][system]['buy_history']
+        sellers = input_items[item][system]['sell_history']
 
         base_table.append([
             name,
@@ -232,7 +298,9 @@ def display_market_info(input_items, system):
             convert_number(spread) + '%',
             convert_number(spread_isk),
             convert_number(average_sell),
-            convert_number(avg_sold)
+            convert_number(avg_sold),
+            buyers,
+            sellers
         ])
 
     table = AsciiTable(base_table)
@@ -325,7 +393,10 @@ def get_item_prices(input_items, system_ids):
             input_items[current_item][system]['market_info'] = item
 
     for system in system_ids:
-        get_price_info(input_items, system)
+        get_average_price_info(input_items, system)
+        get_sell_orders_competition(input_items, system)
+        get_buy_orders_competition(input_items, system)
+        
 
 
 def display_shipping_sheet(input_items, systems, shipping_cost):
@@ -358,9 +429,9 @@ def display_shipping_sheet(input_items, systems, shipping_cost):
     headers = [
         'Item', 'From System Sell', 'To System Sell', 'Shipping Cost',
         'Difference (%)', 'To System Volume', 'Average Sold', 
-        'Average Sold From', 'Average Sold To'
+        'Average Sold From', 'Average Sold To', 'Potential Profit/Day'
     ]
-    sheet[0, :9].values = headers
+    sheet[0, :10].values = headers
     
 
     for row, item in enumerate(input_items.keys(), 1):
@@ -380,6 +451,8 @@ def display_shipping_sheet(input_items, systems, shipping_cost):
             input_items[item][systems[0]]['market_history']['avg_price'],
             input_items[item][systems[1]]['market_history']['avg_price']
         ]
+
+        sheet[row, 9].formula = '=($e{0} * $g{0})'.format(row + 1)
 
 
     dt = datetime.utcnow()
@@ -415,8 +488,8 @@ def display_market_sheet(input_items, system):
     sheet = doc.sheets[0]
 
     headers = ['Item', 'Buy Max', 'Sell Min', 'Spread', 'Isk Spread', 
-        'Average Price', 'Average Sold']
-    sheet[0, :7].values = headers
+        'Average Price', 'Average Sold', 'Buyers', 'Sellers']
+    sheet[0, :9].values = headers
     
 
     for row,item in enumerate(input_items.keys(), 1):
@@ -432,9 +505,11 @@ def display_market_sheet(input_items, system):
             '=$C{0} - $B{0}'.format(row + 1)
         ]
         
-        sheet[row, 5:7].values = [
+        sheet[row, 5:9].values = [
             input_items[item][system]['market_history']['avg_price'],
-            input_items[item][system]['market_history']['avg_sold']
+            input_items[item][system]['market_history']['avg_sold'],
+            input_items[item][system]['buy_history'],
+            input_items[item][system]['sell_history']
         ]
 
     dt = datetime.utcnow()
