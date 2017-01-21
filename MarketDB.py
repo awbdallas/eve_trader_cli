@@ -17,9 +17,10 @@ class MarketDB():
             sys.exit(0)
 
         try:
-            self.conn = psycopg2.connect("dbname={0} user={1}".format(
+            self.conn = psycopg2.connect("host=localhost dbname={0} user={1} password={2}".format(
                 os.getenv('POSTGRES_DBNAME'),
-                os.getenv('POSTGRES_USER')
+                os.getenv('POSTGRES_USER'),
+                os.getenv('POSTGRES_PASSWORD'),
             ))
         except:
             print("Unable to connect to DB")
@@ -30,6 +31,7 @@ class EveItem(MarketDB):
 
     def __init__(self):
         super().__init__()
+        this.eve_system = EveSystem()
 
 
     def get_all_market_items(self):
@@ -43,7 +45,7 @@ class EveItem(MarketDB):
 
         rows = cursor.fetchall()
 
-        list_of_itmes = [
+        list_of_items = [
             {
                 'typeid' : row[0],
                 'groupid' : row[1],
@@ -52,3 +54,79 @@ class EveItem(MarketDB):
                 'market' : row[4],
 
             } for row in rows]
+
+
+    def get_item_orders(self, item, system):
+        cursor = self.conn.cursor()
+
+        cursor.execute(
+            """\
+            SELECT * FROM market_orders WHERE typeid = {0} AND 
+            WHERE stationid in ({1})
+            """.format(item,
+                ', '.join(eve_system(system_to_station))
+                )
+        )
+
+        rows = cursor.fetchall()
+
+        list_of_items = [{
+            'issued' : row[1],
+            'buy' : row[2],
+            'price' : row[3],
+            'volume' : row[4]}
+            for row in rows]
+
+        return list_of_items
+
+
+class EveSystem(MarketDB):
+
+    def __init__(self):
+        super().__init()
+
+
+    def system_to_station(self, system):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """\
+            SELECT * FROM stations where systemid = {0}
+            """.format(system)
+        )
+
+        rows = cursor.fetchall()
+
+        list_of_stations = [
+            {
+                'stationid' : row[0],
+                'regionid' : row[1],
+                'solarsystemid' : row[2],
+                'stationname' : row[3]
+
+            } for row in rows]
+
+        return list_of_stations
+
+
+    def region_to_system(self, region):
+        cursor = self.conn.cursor()
+
+        cursor.execute(
+            """\
+            SELECT * FROM stations where regionid = {0}
+            """
+        )
+
+        rows = cursor.fetchall()
+        
+        list_of_stations = [
+            {
+                'stationid' : row[0],
+                'regionid' : row[1],
+                'solarsystemid' : row[2],
+                'stationname' : row[3]
+
+        } for row in rows]
+
+        return list_of_stations
+

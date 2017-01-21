@@ -15,6 +15,9 @@ def main():
                         action='append')
     args = parser.parse_args()
 
+    holding = MarketDB.EveItem()
+    holding.get_all_market_items()
+
 
 if __name__ == '__main__':
     main()
