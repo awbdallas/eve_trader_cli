@@ -13,15 +13,38 @@ def main():
     parser = ArgumentParser()
     parser.add_argument('--system', help='System to query', default='30000142')
     parser.add_argument('--items', nargs ='+',  help='Item in question')
+    parser.add_argument('--file', help='File of items')
     args = parser.parse_args()
 
-    if args.system and args.items:
+    if args.system:
         eveitem = MarketDB.EveItem()
-        items = check_item_input(eveitem, args.items)
+        if args.items:
+            items = check_item_input(eveitem, args.items)
+        elif args.file:
+            items = load_from_file(eveitem, args.file)
+        else:
+            print("Need items please")
+
         items_with_info = get_price_info(eveitem, items, args.system)
         print_to_terminal(items_with_info)
     else:
         print("Need System and Item")
+
+
+def load_from_file(eveitem, input_file):
+    """
+    Purpose: Load input from file
+    Parameters: MarketDB and input_file
+    """
+    holding = []
+    try:
+        with open(input_file, 'r') as fh:
+            for line in fh:
+                holding.append(line.strip())
+    except:
+        print("Error with reading file")
+
+    return check_item_input(eveitem, holding)
 
 
 def check_item_input(eveitem, items):
@@ -32,9 +55,17 @@ def check_item_input(eveitem, items):
     result_list = []
     
     for item in items:
-        holding = item
-        if item.isalpha():
-            holding = eveitem.name_to_id(item)
+        try:
+            int(item)
+            holding = item
+        except ValueError:
+            if "'" in item:
+
+                holding = item.replace("'", "''")
+            else:
+                holding = item
+            holding = eveitem.name_to_id(holding) 
+
             if not holding:
                 print("{} is an invalid item".format(item))
                 continue
