@@ -34,11 +34,50 @@ class EveItem(MarketDB):
         self.eve_system = EveSystem()
 
 
+    def is_market_item(self, typeid):
+        cursor = self.conn.cursor()
+        cursor.execute(
+        """
+        SELECT market from items where typeid = {0}
+        """.format(typeid)
+        )
+
+        try:
+            return cursor.fetchone()[0]
+        except TypeError:
+            return False
+
+    def id_to_name(self, typeid):
+        cursor = self.conn.cursor() 
+        cursor.execute(
+        """
+        SELECT typename from items where typeid = {}
+        """.format(typeid)
+        )
+
+        return cursor.fetchone()[0]
+
+
+    def name_to_id(self, typename):
+        cursor = self.conn.cursor() 
+
+        cursor.execute(
+        """
+        SELECT typeid from items where typename = '{}'
+        """.format(typename)
+        )
+
+        try:
+            return cursor.fetchone()[0]
+        except TypeError:
+            return None
+
+
     def get_all_market_items(self):
         cursor = self.conn.cursor() 
 
         cursor.execute(
-           """\
+           """
             SELECT * FROM items WHERE market = 'True'
            """
         )
