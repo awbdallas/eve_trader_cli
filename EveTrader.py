@@ -12,11 +12,30 @@ def main():
 
     parser = ArgumentParser()
     parser.add_argument('--system', help='System to query', default='30000142')
+    parser.add_argument('--compare', help='Compare System Prices', nargs=2, default='30000142')
     parser.add_argument('--items', nargs ='+',  help='Item in question')
     parser.add_argument('--file', help='File of items')
     args = parser.parse_args()
 
-    if args.system:
+    if args.compare:
+        eveitem = MarketDB.EveItem()
+        if args.items:
+            items = check_item_input(eveitem, args.items)
+        elif args.file:
+            items = load_from_file(eveitem, args.file)
+        else:
+            print("Need items please")
+
+        systems_info = []
+        systems_info.append(get_price_info(eveitem, items, args.compare[0]))
+        systems_info.append(get_price_info(eveitem, items, args.compare[1]))
+        
+        print_to_terminal(systems_info, mode=1)
+    
+
+
+
+    elif args.system:
         eveitem = MarketDB.EveItem()
         if args.items:
             items = check_item_input(eveitem, args.items)
@@ -98,6 +117,22 @@ def print_to_terminal(items, mode=0):
                 convert_number(item['average_amount']), 
             ])
 
+    if mode == 1:
+        table_data = [
+            ['Name', '1 Min Sell', '1 Avg Sell', '1 Volume', '2 Min Sell', '2 Avg Sell', '2 Volume']
+        ]
+
+
+        for x in range(len(items[0])):
+            table_data.append([
+                items[0][x]['name'], 
+                convert_number(items[0][x]['min_sell']), 
+                convert_number(items[0][x]['average_sell']), 
+                convert_number(items[0][x]['average_amount']), 
+                convert_number(items[1][x]['min_sell']), 
+                convert_number(items[1][x]['average_sell']), 
+                convert_number(items[1][x]['average_amount']), 
+            ])
 
         
     table = AsciiTable(table_data)
@@ -126,17 +161,20 @@ def get_price_info(eveitem, items, system):
     return result_list
 
 def convert_number(input_number):
-    # billions 
-    if input_number / 1e9 > 1:
-        return "%.2fB" % round((input_number / 1e9), 2)
-    # millions
-    elif input_number / 1e6 > 1:
-        return "%.2fM" % round((input_number / 1e6), 2)
-    # Thousands
-    elif input_number / 1e3 > 1:
-        return "%.2fK" % round((input_number / 1e3), 2)
-    else:
-        return "%.2f" % round(input_number, 2)
+    try:
+        # billions 
+        if input_number / 1e9 > 1:
+            return "%.2fB" % round((input_number / 1e9), 2)
+        # millions
+        elif input_number / 1e6 > 1:
+            return "%.2fM" % round((input_number / 1e6), 2)
+        # Thousands
+        elif input_number / 1e3 > 1:
+            return "%.2fK" % round((input_number / 1e3), 2)
+        else:
+            return "%.2f" % round(input_number, 2)
+    except:
+        return 0
 
 
 if __name__ == '__main__':

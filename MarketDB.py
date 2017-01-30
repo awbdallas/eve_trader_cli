@@ -100,10 +100,10 @@ class EveItem(MarketDB):
 
         cursor.execute(
             """\
-            SELECT * FROM market_orders WHERE typeid = %s AND 
-            stationid in (%s)
-            """,
-            (item, ', '.join(self.eve_system.system_to_station(system)))
+            SELECT * FROM market_orders WHERE typeid = {} AND 
+            stationid in {}
+            """.format(
+            (item, ', '.join(self.eve_system.system_to_station(system))))
         )
 
         rows = cursor.fetchall()
