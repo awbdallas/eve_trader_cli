@@ -100,7 +100,7 @@ class EveItem(MarketDB):
 
         cursor.execute(
             """\
-            SELECT * FROM market_orders WHERE typeid = {} AND 
+            SELECT issued, buy, price, volume FROM market_orders WHERE typeid = {} AND 
             stationid in {}
             """.format(
             (item, ', '.join(self.eve_system.system_to_station(system))))
@@ -109,10 +109,10 @@ class EveItem(MarketDB):
         rows = cursor.fetchall()
 
         list_of_items = [{
-            'issued' : row[1],
-            'buy' : row[2],
-            'price' : row[3],
-            'volume' : row[4]}
+            'issued' : row[0],
+            'buy' : row[1],
+            'price' : row[2],
+            'volume' : row[3]}
             for row in rows]
 
         return list_of_items
@@ -123,8 +123,8 @@ class EveItem(MarketDB):
 
         cursor.execute(
             """\
-            SELECT * FROM market_data WHERE typeid = %s AND
-            regionid = %s
+            SELECT typeid, ordercount, lowprice, highprice, avgprice, volume 
+            FROM market_data WHERE typeid = %s AND regionid = %s
             """, 
             (item, self.eve_system.system_to_region(system))
         )
@@ -132,12 +132,12 @@ class EveItem(MarketDB):
         rows = cursor.fetchall()
 
         list_of_items_history = [{
-            'typeid': row[1],
-            'ordercount': row[3],
-            'lowprice': row[4],
-            'highprice': row[5],
-            'avgprice': row[6],
-            'volume': row[7],
+            'typeid': row[0],
+            'ordercount': row[1],
+            'lowprice': row[2],
+            'highprice': row[3],
+            'avgprice': row[4],
+            'volume': row[5],
             }
          for row in rows]
 
@@ -211,7 +211,7 @@ class EveSystem(MarketDB):
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            SELECT * FROM stations where solarsystemid = {}
+            SELECT stationid FROM stations where solarsystemid = {}
             """.format(system)
         )
 
@@ -220,6 +220,22 @@ class EveSystem(MarketDB):
         list_of_stations = [row[0] for row in rows]
 
         return list_of_stations
+
+    def check_system(self, system):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT stationid from stations where solarsystemid = {}
+            """.format(system)
+        )
+
+        rows = cursor.fetchall()
+        
+        if len(rows) == 0:
+            return False
+        else:
+            return True
+
 
 
     def region_to_system(self, region):

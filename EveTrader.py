@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import cmd
 import sys
 import os
 import MarketDB
@@ -12,10 +13,15 @@ def main():
 
     parser = ArgumentParser()
     parser.add_argument('--system', help='System to query', default='30000142')
-    parser.add_argument('--compare', help='Compare System Prices', nargs=2, default='30000142')
+    parser.add_argument('--compare', help='Compare System Prices', nargs=2)
+    parser.add_argument('--shipping', help='Compare System Prices', nargs=2, default='30000142')
     parser.add_argument('--items', nargs ='+',  help='Item in question')
     parser.add_argument('--file', help='File of items')
+    parser.add_argument('--shell', help='Start a shell for marketdb', action='store_true', default=False)
     args = parser.parse_args()
+
+    if args.shell:
+        MarketShell().cmdloop()
 
     if args.compare:
         eveitem = MarketDB.EveItem()
@@ -31,9 +37,6 @@ def main():
         systems_info.append(get_price_info(eveitem, items, args.compare[1]))
         
         print_to_terminal(systems_info, mode=1)
-    
-
-
 
     elif args.system:
         eveitem = MarketDB.EveItem()
@@ -157,7 +160,7 @@ def get_price_info(eveitem, items, system):
         holding['name'] = eveitem.id_to_name(item)
 
         result_list.append(holding)
-    
+  
     return result_list
 
 def convert_number(input_number):
@@ -175,6 +178,34 @@ def convert_number(input_number):
             return "%.2f" % round(input_number, 2)
     except:
         return 0
+
+
+class MarketShell(cmd.Cmd):
+    intro = 'Shell for market information'
+    eveitem = MarketDB.EveItem()
+    prompt = '> '
+
+    def do_item(self,arg):
+        'Do an item lookup: SYSTEM ITEMS'
+        args = arg.split(' ')
+        if len(args) >= 2:
+            system = args[0]
+            input_items = args[1:]
+            if self.eveitem.eve_system.check_system(system):
+                items = check_item_input(self.eveitem, input_items)
+                if len(items) > 0:
+                    items_with_info = get_price_info(self.eveitem, items, system)
+                    print_to_terminal(items_with_info)
+                else:
+                    print("Invalid amount of items")
+            else:
+                print("Invalid System")
+        else:
+            print("Needs at least an item and system")
+
+    def do_bye(self, arg):
+        'We are done here'
+        sys.exit(0)
 
 
 if __name__ == '__main__':
