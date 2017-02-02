@@ -185,9 +185,9 @@ class MarketShell(cmd.Cmd):
     eveitem = MarketDB.EveItem()
     prompt = '> '
 
-    def do_item(self,arg):
-        'Do an item lookup: SYSTEM ITEMS'
-        args = arg.split(' ')
+    def do_item(self,args):
+        'Do an item lookup: SYSTEM ITEM1 ITEM2 ITEM3'
+        args = args.split(' ')
         if len(args) >= 2:
             system = args[0]
             input_items = args[1:]
@@ -203,7 +203,32 @@ class MarketShell(cmd.Cmd):
         else:
             print("Needs at least an item and system")
 
-    def do_bye(self, arg):
+
+    def do_item_compare(self,args):
+        'Do an item Compare: SYSTEM 1 SYSTEM2 ITEM1 ITEM2 ITEM3'
+        args = args.split(' ')
+        if len(args) >= 3:
+            system1 = args[0]
+            system2 = args[1]
+            input_items = args[2:]
+            if self.eveitem.eve_system.check_system(system1) and\
+                    self.eveitem.eve_system.check_system(system2):
+                items = check_item_input(self.eveitem, input_items)
+                if len(items) > 0:
+                    systems_info = []
+                    systems_info.append(get_price_info(self.eveitem, items, system1))
+                    systems_info.append(get_price_info(self.eveitem, items, system2))
+
+                    print_to_terminal(systems_info, mode=1)
+                else:
+                    print("Invalid amount of items")
+            else:
+                print("Invalid System")
+        else:
+            print("Needs at least an item and system")
+
+
+    def do_bye(self, args):
         'We are done here'
         sys.exit(0)
 
