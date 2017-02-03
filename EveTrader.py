@@ -12,46 +12,11 @@ from argparse import ArgumentParser
 def main():
 
     parser = ArgumentParser()
-    parser.add_argument('--system', help='System to query', default='30000142')
-    parser.add_argument('--compare', help='Compare System Prices', nargs=2)
-    parser.add_argument('--shipping', help='Compare System Prices', nargs=2, default='30000142')
-    parser.add_argument('--items', nargs ='+',  help='Item in question')
-    parser.add_argument('--file', help='File of items')
     parser.add_argument('--shell', help='Start a shell for marketdb', action='store_true', default=False)
     args = parser.parse_args()
 
     if args.shell:
         MarketShell().cmdloop()
-
-    if args.compare:
-        eveitem = MarketDB.EveItem()
-        if args.items:
-            items = check_item_input(eveitem, args.items)
-        elif args.file:
-            items = load_from_file(eveitem, args.file)
-        else:
-            print("Need items please")
-
-        systems_info = []
-        systems_info.append(get_price_info(eveitem, items, args.compare[0]))
-        systems_info.append(get_price_info(eveitem, items, args.compare[1]))
-        
-        print_to_terminal(systems_info, mode=1)
-
-    elif args.system:
-        eveitem = MarketDB.EveItem()
-        if args.items:
-            items = check_item_input(eveitem, args.items)
-        elif args.file:
-            items = load_from_file(eveitem, args.file)
-        else:
-            print("Need items please")
-
-        items_with_info = get_price_info(eveitem, items, args.system)
-        print_to_terminal(items_with_info)
-    else:
-        print("Need System and Item")
-
 
 def load_from_file(eveitem, input_file):
     """
@@ -108,14 +73,27 @@ def print_to_terminal(items, mode=0):
 
     if mode == 0:
         table_data = [
-                ['Name', 'Max Buy', 'Min Sell', 'Avg Sell', 'Avg Volume/Day']
+                ['Name', 'Max Buy', 'Min Sell', 'Margin', 'Margin Percent',
+                    'Avg Sell', 'Avg Volume/Day']
         ]
 
         for item in items:
+            if item['min_sell'] and item['max_buy']:
+                margin =  item['min_sell'] - item['max_buy']
+            else:
+                margin = 0
+
+            if margin != 0:
+                margin_percent = (margin / item['max_buy']) * 100
+            else:
+                margin_percent = 0
+
             table_data.append([
                 item['name'], 
                 convert_number(item['max_buy']), 
                 convert_number(item['min_sell']), 
+                convert_number(margin),
+                convert_number(margin_percent),
                 convert_number(item['average_sell']), 
                 convert_number(item['average_amount']), 
             ])
@@ -186,13 +164,16 @@ class MarketShell(cmd.Cmd):
     prompt = '> '
 
     def do_item(self,args):
-        'Do an item lookup: SYSTEM ITEM1 ITEM2 ITEM3'
+        'Do an item lookup: SYSTEM ITEM1 ITEM2 ITEM3 or file'
         args = args.split(' ')
         if len(args) >= 2:
             system = args[0]
             input_items = args[1:]
             if self.eveitem.eve_system.check_system(system):
-                items = check_item_input(self.eveitem, input_items)
+                if len(input_items) == 1 and os.path.isfile(input_items[0]):
+                    items = load_from_file(self.eveitem, input_items[0])
+                else:
+                    items = check_item_input(self.eveitem, input_items)
                 if len(items) > 0:
                     items_with_info = get_price_info(self.eveitem, items, system)
                     print_to_terminal(items_with_info)
@@ -203,7 +184,7 @@ class MarketShell(cmd.Cmd):
         else:
             print("Needs at least an item and system")
 
-
+    
     def do_item_compare(self,args):
         'Do an item Compare: SYSTEM 1 SYSTEM2 ITEM1 ITEM2 ITEM3'
         args = args.split(' ')
@@ -228,9 +209,39 @@ class MarketShell(cmd.Cmd):
             print("Needs at least an item and system")
 
 
+    def do_item_lookup(self, args):
+        'Get the item info of soemthing: ITEM'
+        if len(args) >= 0:
+            result = self.eveitem.get_item_information(args)
+            if result:
+                table_data = [['TypeID', 'GroupID', 'TypeName', 'Volume', 'Market']]
+                table_data.append(
+                        [result[0], result[1], result[2], result[3], result[4]]
+                )
+                table = AsciiTable(table_data)
+                print(table.table)
+            else:
+                print("Invalid Item")
+
+
+    def do_station_lookup(self, args):
+        'Lookup for station information: SYSTEMID'
+        if len(args) >= 0:
+            result = self.eveitem.eve_system.system_to_station_name(args)
+            if result:
+                table_data = [['Station Name', 'StationID']]
+                for station in result:
+                    table_data.append([station[0], station[1]])
+                table = AsciiTable(table_data)
+                print(table.table)
+            else:
+                print("No station in that system")
+            
     def do_bye(self, args):
         'We are done here'
         sys.exit(0)
+
+
 
 
 if __name__ == '__main__':

@@ -73,6 +73,24 @@ class EveItem(MarketDB):
             return None
 
 
+    def get_item_information(self, typename):
+        cursor = self.conn.cursor()
+
+        cursor.execute(
+        """
+        SELECT typeid, groupid, typename, volume, market
+        FROM items WHERE typename = '{}'
+        """.format(typename)
+        )
+       
+        row = cursor.fetchone()
+
+        if row:
+            return row
+        else:
+            return None
+
+
     def get_all_market_items(self):
         cursor = self.conn.cursor() 
 
@@ -220,6 +238,21 @@ class EveSystem(MarketDB):
         list_of_stations = [row[0] for row in rows]
 
         return list_of_stations
+
+    def system_to_station_name(self, system):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT stationname, stationid FROM stations where solarsystemid = {}
+            """.format(system)
+        )
+
+        rows = cursor.fetchall()
+
+        if len(rows) == 0:
+            return None
+        else:
+            return rows
 
     def check_system(self, system):
         cursor = self.conn.cursor()
