@@ -95,9 +95,10 @@ class EveItem(MarketDB):
         cursor = self.conn.cursor() 
 
         cursor.execute(
-           """
-            SELECT * FROM items WHERE market = 'True'
-           """
+            """
+            SELECT typeid, groupid, typename, volume, market
+            FROM items WHERE market = 'True'
+            """
         )
 
         rows = cursor.fetchall()
@@ -112,6 +113,7 @@ class EveItem(MarketDB):
 
             } for row in rows]
 
+        return list_of_items
 
     def get_item_orders(self, item, system):
         cursor = self.conn.cursor()

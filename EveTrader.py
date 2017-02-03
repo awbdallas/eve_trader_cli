@@ -18,6 +18,7 @@ def main():
     if args.shell:
         MarketShell().cmdloop()
 
+
 def load_from_file(eveitem, input_file):
     """
     Purpose: Load input from file
@@ -64,6 +65,7 @@ def check_item_input(eveitem, items):
         
 
     return result_list
+
 
 def print_to_terminal(items, mode=0):
     """
@@ -134,12 +136,16 @@ def get_price_info(eveitem, items, system):
         holding['max_buy'] = eveitem.get_max_buy(item, system)
         holding['min_sell'] = eveitem.get_min_sell(item, system)
         holding['average_sell'] = eveitem.get_history_average_sell(item, system)
-        holding['average_amount'] = float(eveitem.get_history_average_amount(item, system))
+        try:
+            holding['average_amount'] = float(eveitem.get_history_average_amount(item, system))
+        except:
+            holding['average_amount'] = 0
         holding['name'] = eveitem.id_to_name(item)
 
         result_list.append(holding)
   
     return result_list
+
 
 def convert_number(input_number):
     try:
@@ -162,6 +168,7 @@ class MarketShell(cmd.Cmd):
     intro = 'Shell for market information'
     eveitem = MarketDB.EveItem()
     prompt = '> '
+
 
     def do_item(self,args):
         'Do an item lookup: SYSTEM ITEM1 ITEM2 ITEM3 or file'
@@ -237,11 +244,46 @@ class MarketShell(cmd.Cmd):
             else:
                 print("No station in that system")
             
+
+    def do_find_trades(self, args):
+        'Find items to trade(this will take awhile): SYSTEMID MINIMUM_ISK_PER_ITEM'
+        args = args.split(' ')
+        TAX_PERCENT = 6
+
+        if len(args) == 2:
+            table_data = [
+                    ['Name', 'Min Sell', 'Max Buy', 'Margin', 'Average Selling']
+            ]
+            amount_profit = int(args[1])
+            items = [item['typeid'] for item in self.eveitem.get_all_market_items()]
+            item_info = get_price_info(self.eveitem, items, args[0])
+
+            for item in item_info:
+                if item['max_buy'] and item['min_sell'] and item['average_sell']:
+                    margin = (item['min_sell'] - item['max_buy']) -\
+                            (item['max_buy'] * .02) -\
+                            (item['min_sell'] * .04)
+                else:
+                    continue
+
+                if margin >= amount_profit:
+                    table_data.append([
+                        item['name'],
+                        convert_number(item['min_sell']),
+                        convert_number(item['max_buy']),
+                        convert_number(margin),
+                        convert_number(item['average_amount'])
+                    ])
+
+            table = AsciiTable(table_data)
+            print(table.table)
+        else:
+            print("Invalid amount of arguments")
+
+
     def do_bye(self, args):
         'We are done here'
         sys.exit(0)
-
-
 
 
 if __name__ == '__main__':
