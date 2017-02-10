@@ -115,6 +115,7 @@ class EveItem(MarketDB):
 
         return list_of_items
 
+
     def get_item_orders(self, item, system):
         cursor = self.conn.cursor()
 
@@ -192,6 +193,21 @@ class EveItem(MarketDB):
         )
         return cursor.fetchone()[0]
 
+    
+    def get_item_history(self, item, system):
+        cursor = self.conn.cursor()
+        cursor.execute(
+        """
+        SELECT avgprice, date, volume from market_data
+        WHERE date > current_date - interval '30' day
+        AND regionid = {}
+        and typeid = {}
+        ORDER BY date
+        """.format(self.eve_system.system_to_region(system), item)
+        )
+
+        return cursor.fetchall()
+
 
     def get_history_average_sell(self, item, system, days=30):
         cursor = self.conn.cursor()
@@ -241,6 +257,7 @@ class EveSystem(MarketDB):
 
         return list_of_stations
 
+
     def system_to_station_name(self, system):
         cursor = self.conn.cursor()
         cursor.execute(
@@ -256,6 +273,7 @@ class EveSystem(MarketDB):
         else:
             return rows
 
+
     def check_system(self, system):
         cursor = self.conn.cursor()
         cursor.execute(
@@ -270,7 +288,6 @@ class EveSystem(MarketDB):
             return False
         else:
             return True
-
 
 
     def region_to_system(self, region):

@@ -17,7 +17,7 @@ def main():
 
     if args.shell:
         MarketShell().cmdloop()
-
+        
 
 def load_from_file(eveitem, input_file):
     """
@@ -246,15 +246,13 @@ class MarketShell(cmd.Cmd):
             
 
     def do_find_trades(self, args):
-        'Find items to trade(this will take awhile): SYSTEMID MINIMUM_ISK_PER_ITEM'
+        'Find items to trade(this will take awhile): SYSTEMID MINIMUM_ISK_PER_ITEM FILE(optional)'
         args = args.split(' ')
-        TAX_PERCENT = 6
 
-        if len(args) == 2:
+        if len(args) in (2,3):
             table_data = [
                     ['Name', 'Min Sell', 'Max Buy', 'Margin', 'Average Selling']
             ]
-            amount_profit = int(args[1])
             items = [item['typeid'] for item in self.eveitem.get_all_market_items()]
             item_info = get_price_info(self.eveitem, items, args[0])
 
@@ -276,7 +274,50 @@ class MarketShell(cmd.Cmd):
                     ])
 
             table = AsciiTable(table_data)
-            print(table.table)
+
+            if len(args) == 3:
+                try:
+                    with open(args[2], 'w') as fh:
+                        fh.write(table.table)
+                except:
+                    print(table.table)
+            else:
+                print(table.table)
+        else:
+            print("Invalid amount of arguments")
+
+    
+    def do_graph_history(self, args):
+        'Graph item history for past 30 days: SYSTEMID item'
+        args = args.split(' ')
+
+        if len(args) == 2:
+            system = args[0]
+            item = args[1]
+
+            result = self.eveitem.get_item_history(item, system)
+            # grapbbed from http://stackoverflow.com/a/9627970/4162291
+
+            import matplotlib.pyplot as plt
+            import matplotlib.dates as mdates
+
+            plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m/%d/%Y'))
+            plt.gca().xaxis.set_major_locator(mdates.DayLocator(bymonthday=range(1,32), interval=3))
+            
+            plt.subplot(211)
+            plt.plot([item[1] for item in result], [item[0] for item in result])
+            plt.gcf().autofmt_xdate()
+            plt.xlabel('Date')
+            plt.ylabel('Price')
+
+            plt.subplot(212)
+            plt.plot([item[1] for item in result], [item[2] for item in result])
+            plt.gcf().autofmt_xdate()
+            plt.xlabel('Date')
+            plt.ylabel('Volume')
+
+            plt.show()
+
         else:
             print("Invalid amount of arguments")
 
